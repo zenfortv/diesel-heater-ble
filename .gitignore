@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+# local settings (heater address, access token) and personal timers
+config.json
+schedules.json
+*.log

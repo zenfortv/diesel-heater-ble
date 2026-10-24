@@ -1,0 +1,1026 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#120f0d">
+<title>Diesel Heater</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+:root{--bg:#120f0d;--card:#1c1714;--card2:#27201c;--line:#362d27;--fg:#f5eee8;--mute:#a69a8f;--hot:#ff7a2f;--hot2:#ffb347;--amber:#ffc04a;--ok:#5fd38d;--bad:#ff5a5a;--cool:#6bb6ff;--r:18px;color-scheme:dark}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{padding:0 16px calc(84px + env(safe-area-inset-bottom));min-height:100vh}
+button,select,input{font:inherit;color:var(--fg)}
+button{background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:10px 14px;min-height:46px;cursor:pointer;touch-action:manipulation}
+button:active{transform:scale(.97)}
+button:disabled{opacity:.45}
+button.primary{background:linear-gradient(135deg,var(--hot),var(--hot2));color:#1d0f06;border:0;font-weight:700}
+button.danger{background:#3a1d1d;border-color:#5c2b2b;color:#ffb8b8}
+button.small{min-height:36px;padding:6px 12px;font-size:14px}
+button.link{background:none;border:0;color:var(--hot2);min-height:36px;padding:4px 0;text-decoration:underline}
+input,select{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:10px;min-height:46px;width:100%}
+h2{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--mute);margin:0;font-weight:650}
+h3{margin:0 0 6px;font-size:20px}
+p{margin:0}
+.mute{color:var(--mute);font-size:13px}
+.row{display:flex;gap:8px;align-items:center}
+.between{justify-content:space-between}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stack{display:grid;gap:10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:grid;gap:12px}
+
+/* top bar */
+.top{position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;align-items:center;padding:calc(10px + env(safe-area-inset-top)) 0 10px;background:linear-gradient(var(--bg) 75%,transparent)}
+.brand{display:flex;align-items:center;gap:8px;font-weight:750;font-size:18px}
+.brand svg{width:22px;height:22px}
+.chip{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:6px 12px;border-radius:99px;font-size:13px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--mute);flex:none}
+.dot.ok{background:var(--ok)}.dot.bad{background:var(--bad)}.dot.warn{background:var(--amber)}
+
+main{max-width:560px;margin:0 auto;display:grid;gap:12px}
+.panel{display:none;gap:12px;align-content:start}
+.panel.active{display:grid}
+.banner{border-radius:14px;padding:10px 12px;font-size:13px;background:#2d2410;border:1px solid #5b4718;color:#ffd98a}
+.banner.info{background:#13222f;border-color:#24435c;color:#bfe0ff}
+.banner button.link{color:inherit;font-weight:700;min-height:0;padding:0}
+
+/* hero dial */
+.hero{justify-items:center;padding:18px 16px 16px}
+.dial{position:relative;width:min(78vw,270px);aspect-ratio:1}
+.dial svg{width:100%;height:100%;overflow:visible}
+.dial path{fill:none;stroke-width:13;stroke-linecap:round}
+.dial .track{stroke:#2c2420}
+.dial .arc{stroke:var(--mute);transition:stroke-dasharray .5s,stroke .3s}
+.dial-in{position:absolute;inset:0;display:grid;place-content:center;text-align:center;gap:2px}
+.room{font-size:64px;font-weight:750;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.room small{font-size:24px;color:var(--mute);font-weight:600}
+.state{margin-top:8px;font-weight:650}
+.hero.s-ign .arc{stroke:var(--amber);animation:pulse 1.2s ease-in-out infinite}
+.hero.s-run .arc{stroke:url(#hotGrad);filter:drop-shadow(0 0 8px rgba(255,122,47,.55))}
+.hero.s-cool .arc{stroke:var(--cool)}
+.hero.s-ign .state{color:var(--amber)}.hero.s-run .state{color:var(--hot2)}.hero.s-cool .state{color:var(--cool)}
+.hero.s-dis{opacity:.6}
+@keyframes pulse{50%{opacity:.35}}
+.power{width:100%;max-width:320px;min-height:60px;font-size:19px;display:flex;gap:10px;align-items:center;justify-content:center;border-radius:99px}
+.power svg{width:22px;height:22px}
+
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--card2);border-radius:14px;padding:4px}
+.seg button{border:0;background:none;min-height:42px;border-radius:11px;color:var(--mute);font-weight:600}
+.seg button.on{background:var(--fg);color:var(--bg)}
+.stepper{display:grid;grid-template-columns:72px 1fr 72px;gap:10px;align-items:center;text-align:center}
+.stepper > button{min-height:72px;font-size:34px;border-radius:20px;padding:0}
+.stepper output{font-size:44px;font-weight:750;font-variant-numeric:tabular-nums;line-height:1}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px}
+.stat b{display:block;font-size:19px;font-variant-numeric:tabular-nums}
+.stat span{font-size:12px;color:var(--mute)}
+.qrow{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.errcard{background:#2a1414;border-color:#5c2b2b}
+.errcard b{color:#ffb8b8;font-size:17px}
+
+/* lists */
+.list{display:grid;gap:8px}
+.item{display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--card2);border:0;border-radius:14px;padding:10px 12px;text-align:left;width:100%;min-height:56px}
+.item .t{font-weight:700;font-variant-numeric:tabular-nums}
+.item .s{font-size:12px;color:var(--mute)}
+.item.dim{opacity:.5}
+.empty{color:var(--mute);font-size:13px;padding:4px 0}
+
+/* week chart */
+.week{display:grid;gap:5px}
+.wk-row{display:grid;grid-template-columns:36px 1fr;gap:8px;align-items:center;font-size:12px;color:var(--mute)}
+.wk-row.today span{color:var(--fg);font-weight:700}
+.wk-track{position:relative;height:28px;border-radius:8px;background:repeating-linear-gradient(90deg,#2a221e 0 calc(25% - 1px),#3a302a calc(25% - 1px) 25%)}
+.wk-scale{display:flex;justify-content:space-between;font-size:10px;color:var(--mute)}
+.blk{position:absolute;top:3px;bottom:3px;min-height:0;padding:0;border:0;border-radius:6px;background:linear-gradient(90deg,var(--hot),var(--hot2))}
+.blk.off{background:#5a4c43}
+.now{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--fg);border-radius:2px}
+
+/* switch */
+.sw{position:relative;width:50px;height:30px;flex:none;display:inline-block}
+.sw input{opacity:0;width:0;height:0;position:absolute}
+.sw i{position:absolute;inset:0;background:#3d332c;border-radius:99px;transition:.2s}
+.sw i:before{content:"";position:absolute;width:24px;height:24px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.sw input:checked+i{background:var(--hot)}
+.sw input:checked+i:before{transform:translateX(20px)}
+.chips{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.chips label{position:relative}
+.chips input{position:absolute;opacity:0}
+.chips span{display:block;padding:10px 0;text-align:center;border-radius:10px;background:var(--card2);border:1px solid var(--line);font-size:13px}
+.chips input:checked+span{background:var(--hot);color:#1d0f06;border-color:var(--hot);font-weight:700}
+label.f{display:grid;gap:4px;font-size:13px;color:var(--mute)}
+
+/* tabs */
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;display:grid;grid-template-columns:repeat(3,1fr);background:rgba(22,18,15,.94);backdrop-filter:blur(10px);border-top:1px solid var(--line);padding:6px 8px calc(6px + env(safe-area-inset-bottom))}
+nav.tabs button{background:none;border:0;display:grid;justify-items:center;gap:2px;font-size:12px;color:var(--mute);min-height:54px}
+nav.tabs svg{width:24px;height:24px}
+nav.tabs button.on{color:var(--hot2)}
+
+/* dialogs */
+dialog{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:22px 22px 0 0;padding:0;width:100%;max-width:560px;margin:auto auto 0;max-height:92vh}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+.sheet{padding:20px 16px calc(20px + env(safe-area-inset-bottom));display:grid;gap:12px}
+.sheet .big{min-height:56px;font-size:17px}
+.err{color:#ffb8b8;font-size:13px}
+#toast{position:fixed;left:50%;bottom:calc(92px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(20px);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:99px;font-weight:650;font-size:14px;opacity:0;pointer-events:none;transition:.25s;z-index:20;white-space:nowrap}
+#toast.show{opacity:1;transform:translateX(-50%)}
+#toast.bad{background:var(--bad);color:#fff}
+
+@media (min-width:980px){
+  body{padding-bottom:24px}
+  main{max-width:1240px;grid-template-columns:repeat(3,1fr);align-items:start}
+  .panel{display:grid}
+  nav.tabs{display:none}
+  #banner{grid-column:1/-1}
+  dialog{border-radius:22px;margin:auto}
+  #toast{bottom:24px}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs><linearGradient id="hotGrad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#ff7a2f"/><stop offset="1" stop-color="#ffb347"/></linearGradient></defs></svg>
+
+<header class="top">
+  <div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="#ff9a3c" stroke-width="2" stroke-linejoin="round"><path d="M12 2c1 3.5 5 5.5 5 11a5 5 0 0 1-10 0c0-2.5 1.2-4 2.5-5.5.3 1.6 1 2.7 2.2 3.2C11 8 11.2 5 12 2z"/></svg>Heater</div>
+  <button class="chip" id="connChip"><i class="dot" id="connDot"></i><span id="connTxt">Starting…</span></button>
+</header>
+
+<main>
+  <div id="banner" class="banner" hidden></div>
+
+  <!-- HOME -->
+  <section class="panel active" id="p-home">
+    <div class="card hero s-dis" id="hero">
+      <div class="dial">
+        <svg viewBox="0 0 220 220" aria-hidden="true">
+          <path class="track" d="M44.95 175.05A92 92 0 1 1 175.05 175.05" pathLength="100"/>
+          <path class="arc" id="arc" d="M44.95 175.05A92 92 0 1 1 175.05 175.05" pathLength="100" stroke-dasharray="0 100"/>
+        </svg>
+        <div class="dial-in">
+          <div class="room"><span id="room">--</span><small>°C</small></div>
+          <div class="mute">in the room</div>
+          <div class="state" id="stateTxt">—</div>
+        </div>
+      </div>
+      <button class="power primary" id="powerBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3v8M6.3 6.8a8 8 0 1 0 11.4 0"/></svg><span id="powerTxt">Turn on</span></button>
+    </div>
+
+    <div class="card errcard" id="errCard" hidden><b id="errTitle"></b><p id="errTip" class="mute"></p></div>
+
+    <div class="card">
+      <div class="seg"><button id="modeTemp">Thermostat</button><button id="modeLevel">Power level</button></div>
+      <div class="stepper">
+        <button id="minus" aria-label="Lower">−</button>
+        <div><output id="setVal">--</output><div class="mute" id="setHint">&nbsp;</div></div>
+        <button id="plus" aria-label="Higher">+</button>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><b id="volt">--</b><span>battery V</span></div>
+      <div class="stat"><b id="case">--</b><span>heater °C</span></div>
+      <div class="stat"><b id="errShort">--</b><span>fault</span></div>
+    </div>
+
+    <div class="card">
+      <div class="row between"><h2>Switch off in</h2><button class="link" id="offCancel" hidden>Cancel</button></div>
+      <div class="qrow" id="offBtns"><button data-m="30">30 m</button><button data-m="60">1 h</button><button data-m="120">2 h</button><button data-m="240">4 h</button></div>
+      <p class="mute" id="offTxt">No countdown running</p>
+    </div>
+
+    <button class="item" id="nextHome" data-go="timers"><div><div class="s">Next timer</div><div class="t" id="nextHomeTxt">Nothing scheduled</div></div><span class="mute">›</span></button>
+  </section>
+
+  <!-- TIMERS -->
+  <section class="panel" id="p-timers">
+    <div class="banner info" id="localNote" hidden></div>
+    <div class="card">
+      <div class="row between"><h2>Weekly</h2><button class="small primary" id="addSlot">+ Add</button></div>
+      <div class="week" id="week"></div>
+      <div class="list" id="slotList"></div>
+    </div>
+    <div class="card">
+      <div class="row between"><h2>One-time</h2><button class="small" id="addOnce">+ Add</button></div>
+      <div class="list" id="onceList"></div>
+    </div>
+    <div class="card">
+      <h2>Coming up</h2>
+      <div class="list" id="nextList"></div>
+    </div>
+  </section>
+
+  <!-- HEATER -->
+  <section class="panel" id="p-heater">
+    <div class="card">
+      <h2>Built-in timer</h2>
+      <p class="mute">Saved inside the heater: one daily start + run time. Works even with no phone, PC or ESP around.</p>
+      <div class="grid2">
+        <label class="f">Start<input type="time" id="btStart" value="06:30"></label>
+        <label class="f">Run (minutes)<input type="number" id="btDur" value="60" min="1" max="1440" inputmode="numeric"></label>
+      </div>
+      <div class="row between"><span>Enabled</span><label class="sw"><input type="checkbox" id="btEn"><i></i></label></div>
+      <button class="primary" id="btSave">Send to heater</button>
+      <p class="mute" id="btRead"></p>
+    </div>
+
+    <div class="card">
+      <h2>Heater clock</h2>
+      <div class="row between"><div><div class="t" id="clkShow" style="font-size:22px;font-weight:700">--:--</div><div class="mute" id="clkTxt">—</div></div>
+        <button id="clkSync">Sync now</button></div>
+      <div class="row between" id="autoClkRow" hidden><span>Auto-correct when connected<br><span class="mute">fixes drift whenever the page is open</span></span>
+        <label class="sw"><input type="checkbox" id="autoClk"><i></i></label></div>
+    </div>
+
+    <div class="card">
+      <h2>Options</h2>
+      <div class="row between" id="autoRow" hidden><span>Auto start/stop<br><span class="mute">burner stops at target, restarts when cold</span></span>
+        <label class="sw"><input type="checkbox" id="autoSS"><i></i></label></div>
+      <div class="row between"><span>Safety auto-off<br><span class="mute">if left running too long</span></span>
+        <select id="maxRun" style="width:auto"><option value="0">never</option><option value="2">2 h</option><option value="4">4 h</option><option value="6">6 h</option><option value="8">8 h</option><option value="12">12 h</option></select></div>
+    </div>
+
+    <div class="card">
+      <h2>Connection</h2>
+      <p id="connInfo" class="mute"></p>
+      <div class="row between" id="pinRow" hidden><span>Heater password<br><span class="mute">same as in AirHeaterBLE (default 1234)</span></span>
+        <input id="pin" inputmode="numeric" maxlength="4" style="width:90px;text-align:center"></div>
+      <div class="row between" id="pauseRow" hidden><span>Release Bluetooth<br><span class="mute">lets the AirHeaterBLE app connect</span></span>
+        <label class="sw"><input type="checkbox" id="pause"><i></i></label></div>
+      <button id="changeConn">Change connection</button>
+    </div>
+
+    <details class="card"><summary class="mute">History</summary><div class="list" id="hist"></div></details>
+  </section>
+</main>
+
+<nav class="tabs">
+  <button data-tab="home" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2c1 3.5 5 5.5 5 11a5 5 0 0 1-10 0c0-2.5 1.2-4 2.5-5.5.3 1.6 1 2.7 2.2 3.2C11 8 11.2 5 12 2z"/></svg>Home</button>
+  <button data-tab="timers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg>Timers</button>
+  <button data-tab="heater"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>Heater</button>
+</nav>
+<div id="toast"></div>
+
+<dialog id="dlgConnect"><div class="sheet">
+  <h3>Connect your heater</h3>
+  <p class="mute">Switch the heater on and close the AirHeaterBLE app first: the heater accepts only one connection at a time.</p>
+  <button class="primary big" id="cBle">Connect via Bluetooth</button>
+  <p class="mute" id="cBleNote"></p>
+  <button class="link" id="cBleAll">Heater not in the list? Show all devices</button>
+  <button class="big" id="cDemo">Try the demo</button>
+  <p class="err" id="cErr"></p>
+  <p class="mute">Running the ESP32 box or the PC server? Open its address instead (for example <b>http://heater.local</b>): timers then work 24/7.</p>
+  <button class="small" id="cClose">Close</button>
+</div></dialog>
+
+<dialog id="dlgSlot"><form method="dialog" class="sheet" id="slotForm">
+  <h3 id="slotTitle">Weekly slot</h3>
+  <div class="chips" id="sDays"></div>
+  <div class="grid2"><label class="f">Turn on<input type="time" id="sOn" required></label><label class="f">Turn off<input type="time" id="sOff" required></label></div>
+  <p class="mute" id="sHint"></p>
+  <div class="grid2"><label class="f">Set to<select id="sMode"><option value="temp">Thermostat °C</option><option value="level">Power level</option><option value="keep">Keep last setting</option></select></label>
+    <label class="f" id="sValWrap">Value<input type="number" id="sVal" inputmode="numeric"></label></div>
+  <div class="row between"><span>Active</span><label class="sw"><input type="checkbox" id="sEn" checked><i></i></label></div>
+  <div class="grid2"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="save">Save</button></div>
+  <button class="danger" value="delete" id="sDel" formnovalidate>Delete slot</button>
+</form></dialog>
+
+<dialog id="dlgOnce"><form method="dialog" class="sheet" id="onceForm">
+  <h3>One-time timer</h3>
+  <label class="f">When<input type="datetime-local" id="oAt" required></label>
+  <div class="seg" id="oAction"><button type="button" data-v="on" class="on">Turn on</button><button type="button" data-v="off">Turn off</button></div>
+  <div class="grid2" id="oSet"><label class="f">Set to<select id="oMode"><option value="keep">Keep last setting</option><option value="temp">Thermostat °C</option><option value="level">Power level</option></select></label>
+    <label class="f" id="oValWrap" hidden>Value<input type="number" id="oVal" inputmode="numeric"></label></div>
+  <div class="grid2"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="save">Add</button></div>
+</form></dialog>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const now = () => Date.now() / 1000;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const pad = n => String(n).padStart(2, "0");
+const hm = m => pad(Math.floor(m / 60) % 24) + ":" + pad(m % 60);
+const toMin = s => { const [h, m] = s.split(":").map(Number); return h * 60 + m; };
+const nowMin = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
+const iso = (d, sec) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}${sec ? ":" + pad(d.getSeconds()) : ""}`;
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("dh:" + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("dh:" + k, JSON.stringify(v)); } catch {} },
+};
+
+const STEP = {0: "Off", 1: "Self-test", 2: "Igniting", 3: "Heating", 4: "Cooling down", 6: "Ventilating"};
+const ERR = {
+  1: ["Ignition failed", "The heater could not light. Check the fuel level and that the fuel line has no air, then try again. Keeps happening: glow plug or a dirty burner."],
+  2: ["Flame went out", "Usually an empty tank, air in the fuel line or a clogged fuel filter."],
+  3: ["Battery voltage out of range", "Supply too low or too high: charge the battery and check the cables."],
+  4: ["Outlet sensor fault", "The hot-air temperature sensor is faulty or unplugged."],
+  5: ["Inlet sensor fault", "The intake temperature sensor is faulty or unplugged."],
+  6: ["Fuel pump fault", "The pump is not working: check its plug and wiring."],
+  7: ["Fan fault", "The blower is blocked or the motor is failing."],
+  8: ["Glow plug fault", "The glow plug is broken or not connected."],
+  9: ["Overheating", "Hot air can't get out: make sure the outlet and the intake are not blocked."],
+  10: ["Overheat sensor fault", "The overheat sensor is faulty or unplugged."],
+};
+
+/* ---------------- heater protocol (AirHeaterBLE family) ----------------
+   command: AA 55 <pin/100> <pin%100> <cmd> <arg lo> <arg hi> <sum of bytes 2-6>
+   cmd (decimal): 1 status, 2 mode (1 level / 2 thermostat), 3 power, 4 level/temp,
+   10 clock, 11 timer start, 12 timer minutes, 13 timer on/off, 18 auto start/stop
+   replies: AA55 18/20 bytes, AA66 20 bytes, or 48 bytes XOR-"password" encrypted. */
+const SERVICES = [0xffe0, 0xfff0], CHAR = {0xffe0: 0xffe1, 0xfff0: 0xfff1};
+const KEY = [112, 97, 115, 115, 119, 111, 114, 100];
+const s16 = v => v > 32767 ? v - 65536 : v;
+
+function packet(pin, cmd, arg) {
+  const p = [0xAA, 0x55, Math.floor(pin / 100), pin % 100, cmd, arg & 255, (arg >> 8) & 255, 0];
+  p[7] = (p[2] + p[3] + p[4] + p[5] + p[6]) & 255;
+  return Uint8Array.from(p);
+}
+
+function parseFrame(b) {
+  if (b.length < 17) return null;
+  const h = b[0] << 8 | b[1];
+  if (h === 0xAA55 && (b.length === 18 || b.length === 20)) {
+    const s = {protocol: "AA55", running_state: b[3], error_code: b[4], running_step: b[5], running_mode: b[8]};
+    if (s.running_mode === 1) s.set_level = b[9];
+    else if (s.running_mode === 2) { s.set_temp = b[9]; s.set_level = b[10] + 1; }
+    else if (s.running_mode === 0) s.set_level = b[10] + 1;
+    s.supply_voltage = (256 * b[12] + b[11]) / 10;
+    s.case_temperature = s16(256 * b[14] + b[13]);
+    s.cab_temperature = s16(256 * b[16] + b[15]);
+    return s;
+  }
+  if (h === 0xAA66 && b.length === 20) {
+    const s = {protocol: "AA66", running_state: b[3], error_code: b[17], running_step: b[5], running_mode: b[8]};
+    if (s.running_mode === 1) s.set_level = clamp(b[9], 1, 10);
+    else if (s.running_mode === 2) { s.set_temp = clamp(b[9], 8, 36); s.set_level = clamp(b[10] + 1, 1, 10); }
+    else if (s.running_mode === 0) s.set_level = clamp(b[10] + 1, 1, 10);
+    s.supply_voltage = (b[11] | b[12] << 8) / 10;
+    const c = b[13] | b[14] << 8;
+    s.case_temperature = c > 350 ? c / 10 : c;
+    s.cab_temperature = s16(256 * b[16] + b[15]);
+    return s;
+  }
+  if (b.length === 48) {
+    const d = b.map((v, i) => v ^ KEY[i % 8]);
+    const ih = d[0] << 8 | d[1];
+    if (ih !== 0xAA55 && ih !== 0xAA66) return null;
+    const e66 = ih === 0xAA66;
+    const s = {protocol: e66 ? "AA66 encrypted" : "AA55 encrypted", running_state: d[3], error_code: e66 ? d[35] : d[4],
+      running_step: d[5], running_mode: d[8], set_level: clamp(d[10], 1, 10)};
+    s.set_temp = clamp(e66 && d[27] === 1 ? Math.round((d[9] - 32) * 5 / 9) : d[9], 8, 36);
+    s.supply_voltage = (256 * d[11] + d[12]) / 10;
+    s.case_temperature = s16(256 * d[13] + d[14]);
+    s.cab_temperature = s16(256 * d[32] + d[33]) / 10;
+    s.clock_min = d[19] << 8 | d[20];
+    s.timer_start_min = d[21] << 8 | d[22];
+    s.timer_duration_min = d[23] << 8 | d[24];
+    s.timer_enabled = d[25] === 1;
+    s.auto_start_stop = d[31] === 1;
+    return s;
+  }
+  return null;
+}
+
+/* ---------------- devices: shared high-level commands ---------------- */
+class Device {
+  constructor(ns, onUpdate) { this.ns = ns; this.onUpdate = onUpdate; this.clock = store.get(ns + "clock", {}); this.paused = false; this.s = {}; }
+  get state() { return {...this.s, clock_sync: this.clock, paused: this.paused}; }
+  publish() { this.onUpdate(this.state); }
+  power(on) { return this.cmd(3, on ? 1 : 0); }
+  async ensureMode(m) { return this.s.running_mode === m || this.cmd(2, m); }
+  async setTemperature(t) { return await this.ensureMode(2) && this.cmd(4, clamp(Math.round(t), 8, 36)); }
+  async setLevel(l) { return await this.ensureMode(1) && this.cmd(4, clamp(Math.round(l), 1, 10)); }
+  setAutoStartStop(on) { return this.cmd(18, on ? 1 : 0); }
+  async setBuiltinTimer(start, dur, en) {
+    return await this.syncClock(true) && await this.cmd(11, toMin(start)) &&
+      await this.cmd(12, clamp(dur | 0, 1, 1440)) && this.cmd(13, en ? 1 : 0);
+  }
+  // the heater clock drifts: compare with real time, re-set it (cmd 10), estimate drift per day
+  async syncClock(force) {
+    const real = nowMin(), hc = this.s.clock_min;
+    let drift = null;
+    if (hc != null) {
+      drift = ((hc - real + 720) % 1440 + 1440) % 1440 - 720;
+      if (!force && drift === 0) return true;
+    } else if (!force) return true;  // heater doesn't report its clock: only on request
+    if (!await this.cmd(10, real)) return false;
+    const c = this.clock;
+    if (drift != null && c.last_sync) {
+      const days = (now() - c.last_sync) / 86400;
+      if (days > 0.5) c.drift_min_per_day = Math.round(drift / days * 10) / 10;
+    }
+    c.last_drift_min = drift; c.last_sync = now();
+    store.set(this.ns + "clock", c);
+    this.publish();
+    return true;
+  }
+}
+
+class FakeDevice extends Device {
+  constructor(onUpdate) {
+    super("demo:", onUpdate);
+    this.clockOff = 7; this.room = 14; this.stepAt = 0;
+    this.s = {connected: true, protocol: "Demo heater", address: "demo", running_state: 0, running_step: 0, running_mode: 2,
+      set_temp: 21, set_level: 5, error_code: 0, supply_voltage: 12.7, case_temperature: 18, cab_temperature: 14,
+      timer_start_min: 390, timer_duration_min: 60, timer_enabled: false, auto_start_stop: false};
+    setInterval(() => this.tick(), 1000);
+    this.tick();
+  }
+  tick() {
+    const s = this.s, t = now(), el = t - this.stepAt;
+    const go = st => { s.running_step = st; this.stepAt = t; };
+    if (s.running_state) {
+      if (s.running_step === 0 || s.running_step === 4) go(1);
+      else if (s.running_step === 1 && el > 3) go(2);
+      else if (s.running_step === 2 && el > 8) go(3);
+    } else if (s.running_step >= 1 && s.running_step <= 3) go(4);
+    else if (s.running_step === 4 && el > 12) go(0);
+    const heat = s.running_step === 3 ? (s.running_mode === 2 ? (this.room < s.set_temp ? .06 : -.01) : .012 * s.set_level) : -.01;
+    this.room = clamp(this.room + heat, 9, 30);
+    s.cab_temperature = Math.round(this.room * 10) / 10;
+    const tgt = s.running_step === 3 ? 110 + s.set_level * 12 : s.running_step === 2 ? 60 : s.running_step === 4 ? 45 : 18;
+    s.case_temperature += Math.sign(tgt - s.case_temperature) * Math.min(3, Math.abs(tgt - s.case_temperature));
+    s.supply_voltage = s.running_step === 2 ? 11.9 : s.running_step === 3 ? 12.4 : 12.7;
+    this.clockOff += 1 / 30000;  // runs ~3 min/day fast, like the real one
+    s.clock_min = Math.floor(((nowMin() + this.clockOff) % 1440 + 1440) % 1440);
+    this.publish();
+  }
+  async cmd(c, a) {
+    await sleep(120);
+    const s = this.s;
+    if (c === 2) s.running_mode = a;
+    else if (c === 3) s.running_state = a ? 1 : 0;
+    else if (c === 4) { if (s.running_mode === 2) s.set_temp = a; else s.set_level = a; }
+    else if (c === 10) this.clockOff = a - nowMin();
+    else if (c === 11) s.timer_start_min = a;
+    else if (c === 12) s.timer_duration_min = a;
+    else if (c === 13) s.timer_enabled = !!a;
+    else if (c === 18) s.auto_start_stop = !!a;
+    this.tick();
+    return true;
+  }
+  async disconnect() { this.paused = true; this.publish(); }
+  async connect() { this.paused = false; this.publish(); }
+}
+
+class BleDevice extends Device {
+  constructor(onUpdate) {
+    super("ble:", onUpdate);
+    this.s = {connected: false};
+    this.q = Promise.resolve(); this.pending = 0; this.dev = null; this.ch = null; this.got = null;
+    this.want = false; this.lastClock = 0;
+    this.onLost = () => this.lost();
+  }
+  get pin() { return +store.get("pin", 1234) || 1234; }
+  async choose(all) {
+    if (this.dev?.gatt.connected) { this.want = false; this.dev.gatt.disconnect(); }
+    const opt = all ? {acceptAllDevices: true, optionalServices: SERVICES}
+      : {filters: [{services: [0xffe0]}, {services: [0xfff0]}, {namePrefix: "BYD"}, {namePrefix: "AirHeater"}], optionalServices: SERVICES};
+    this.use(await navigator.bluetooth.requestDevice(opt));
+    await this.connect();
+  }
+  // after a reload Chrome may hand back the already-allowed heater without asking again
+  async resume() {
+    if (!navigator.bluetooth?.getDevices) return false;
+    const d = (await navigator.bluetooth.getDevices()).find(x => x.id === store.get("bleId"));
+    if (!d) return false;
+    this.use(d);
+    await this.connect();
+    return true;
+  }
+  use(d) {
+    this.dev?.removeEventListener("gattserverdisconnected", this.onLost);
+    this.dev = d;
+    d.addEventListener("gattserverdisconnected", this.onLost);
+    store.set("bleId", d.id); store.set("bleName", d.name || "");
+    this.s.address = d.name || d.id;
+  }
+  async connect() {
+    this.want = true; this.paused = false; this.s.connecting = true; this.publish();
+    try {
+      const srv = await this.dev.gatt.connect();
+      let svc = null, ch = null;
+      for (const u of SERVICES) {
+        try { svc = await srv.getPrimaryService(u); ch = await svc.getCharacteristic(CHAR[u]); break; } catch { svc = ch = null; }
+      }
+      if (!ch) { this.want = false; this.dev.gatt.disconnect(); throw new Error("This device has no heater service (FFE0/FFF0)."); }
+      for (const c of await svc.getCharacteristics()) {
+        if (!(c.properties.notify || c.properties.indicate)) continue;
+        if (!c._dh) { c._dh = true; c.addEventListener("characteristicvaluechanged", e => this.notify(e.target.value)); }
+        await c.startNotifications();
+      }
+      this.ch = ch;
+      Object.assign(this.s, {connected: true, last_error: null});
+      this.publish();
+      await this.cmd(1, 0);
+      this.lastClock = 0;
+      this.loop();
+    } finally { this.s.connecting = false; this.publish(); }
+  }
+  loop() {
+    clearInterval(this.timer);
+    this.timer = setInterval(async () => {
+      if (!this.s.connected || this.pending) return;
+      await this.cmd(1, 0);
+      if (store.get("autoClock", true) && now() - this.lastClock > 3600 && this.s.clock_min != null) {
+        this.lastClock = now();
+        this.syncClock(false);
+      }
+    }, 2500);
+  }
+  lost() {
+    this.s.connected = false; this.ch = null; this.publish();
+    if (this.want) this.reconnect();
+  }
+  async reconnect() {
+    for (let i = 0; this.want && !this.s.connected; i++) {
+      await sleep(Math.min(30000, 2000 * 2 ** Math.min(i, 4)));
+      if (!this.want || this.s.connected) return;
+      try { await this.connect(); } catch (e) { this.s.last_error = e.message; this.publish(); }
+    }
+  }
+  async disconnect() {
+    this.want = false; this.paused = true; clearInterval(this.timer);
+    try { this.dev?.gatt.disconnect(); } catch {}
+    this.s.connected = false; this.publish();
+  }
+  notify(dv) {
+    const p = parseFrame(new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength));
+    if (!p) return;
+    this.s = {...p, connected: true, address: this.s.address, updated: now()};
+    this.got?.();
+    this.publish();
+  }
+  // one command at a time; each waits for the heater's status reply
+  cmd(c, a = 0) {
+    this.pending++;
+    const run = async () => {
+      try {
+        if (!this.ch || !this.dev?.gatt.connected) return false;
+        const got = new Promise(r => { this.got = r; });
+        const pk = packet(this.pin, c, a);
+        if (this.ch.properties.write) await this.ch.writeValueWithResponse(pk);
+        else await this.ch.writeValueWithoutResponse(pk);
+        const ok = await Promise.race([got.then(() => true), sleep(4000).then(() => false)]);
+        this.got = null;
+        await sleep(250);
+        return ok;
+      } catch (e) { this.s.last_error = e.message; return false; }
+      finally { this.pending--; }
+    };
+    return (this.q = this.q.then(run));
+  }
+}
+
+/* ---------------- in-page scheduler (demo + direct Bluetooth), same API as server.py ---------------- */
+class LocalHub {
+  constructor(dev, ns, demo) {
+    this.dev = dev; this.ns = ns; this.demo = demo;
+    this.data = {weekly: [], once: [], off_timer: null, max_run_hours: 0, ...store.get(ns + "sched", {})};
+    this.history = store.get(ns + "hist", []);
+    this.pend = []; this.last = now(); this.onSince = null;
+    setInterval(() => this.tick().catch(console.error), 5000);
+  }
+  save() { store.set(this.ns + "sched", this.data); store.set(this.ns + "hist", this.history.slice(-30)); }
+  add(kind, it) { it = {...it, id: Math.random().toString(16).slice(2, 10), enabled: it.enabled ?? true}; this.data[kind].push(it); this.save(); return it; }
+  update(kind, id, p) { const it = this.data[kind].find(x => x.id === id); if (it) { Object.assign(it, p, {id}); this.save(); } return it; }
+  del(kind, id) { this.data[kind] = this.data[kind].filter(x => x.id !== id); this.save(); }
+  snapshot() { return {...this.data, next: this.nextEvents(6), history: this.history.slice(-15)}; }
+  events(a, b) {
+    const out = [], start = new Date(a * 1000), end = new Date(b * 1000);
+    const at = (day, hhmm) => { const d = new Date(day); const [h, m] = hhmm.split(":"); d.setHours(+h, +m, 0, 0); return d; };
+    const day = new Date(start); day.setHours(0, 0, 0, 0); day.setDate(day.getDate() - 1);
+    for (; day <= end; day.setDate(day.getDate() + 1)) {
+      const wd = (day.getDay() + 6) % 7;
+      for (const r of this.data.weekly) {
+        if (r.enabled === false || !r.days.includes(wd)) continue;
+        const on = at(day, r.on), off = at(day, r.off);
+        if (off <= on) off.setDate(off.getDate() + 1);
+        const src = `weekly ${r.on}-${r.off}`;
+        out.push([on, {action: "on", mode: r.mode, value: r.value, src}], [off, {action: "off", src}]);
+      }
+    }
+    for (const o of this.data.once) {
+      if (o.enabled !== false) out.push([new Date(o.at), {action: o.action, mode: o.mode, value: o.value, src: `once ${o.at}`, once_id: o.id}]);
+    }
+    if (this.data.off_timer) out.push([new Date(this.data.off_timer * 1000), {action: "off", src: "countdown"}]);
+    return out.filter(([t]) => t > start && t <= end).sort((x, y) => x[0] - y[0]);
+  }
+  nextEvents(n) {
+    const t = now();
+    return this.events(t, t + 8 * 86400).slice(0, n).map(([d, e]) => ({at: iso(d), action: e.action, mode: e.mode, value: e.value, src: e.src}));
+  }
+  async exec(e) {
+    const d = this.dev;
+    if (e.action === "off") return d.power(false);
+    let ok = await d.power(true);
+    if (ok && e.mode === "temp" && e.value) ok = await d.setTemperature(+e.value);
+    else if (ok && e.mode === "level" && e.value) ok = await d.setLevel(+e.value);
+    return ok;
+  }
+  record(e, result) { this.history.push({t: iso(new Date(), true), action: e.action, src: e.src, result}); this.save(); }
+  async tick() {
+    if (hub !== this) return;  // replaced after switching connection
+    const t = now();
+    for (const [, e] of this.events(this.last, t)) {
+      e.deadline = t + 600;
+      this.pend.push(e);
+      if (e.once_id) this.update("once", e.once_id, {enabled: false});
+      if (e.src === "countdown") { this.data.off_timer = null; this.save(); }
+    }
+    this.last = t;
+    const running = !!this.dev.s.running_state, cap = this.data.max_run_hours || 0;
+    this.onSince = running ? (this.onSince || t) : null;
+    if (cap && this.onSince && t - this.onSince > cap * 3600) {
+      this.pend.push({action: "off", src: `safety cap ${cap}h`, deadline: t + 600});
+      this.onSince = t;
+    }
+    if (this.pend.length > 1) { this.pend.slice(0, -1).forEach(e => this.record(e, "superseded")); this.pend = this.pend.slice(-1); }
+    for (const e of [...this.pend]) {
+      if (await this.exec(e)) { this.record(e, "ok"); this.pend.splice(this.pend.indexOf(e), 1); }
+      else if (t > e.deadline) { this.record(e, "FAILED (heater unreachable)"); this.pend.splice(this.pend.indexOf(e), 1); }
+    }
+  }
+  async api(path, method, body = {}) {
+    const d = this.dev, p = path.replace(/^\/?api\//, ""), ok = async pr => ({ok: !!await pr});
+    switch (p) {
+      case "state": return {heater: d.state, paused: d.paused, simulated: this.demo, schedule: this.snapshot()};
+      case "power": return ok(d.power(!!body.on));
+      case "level": return ok(d.setLevel(body.level));
+      case "temperature": return ok(d.setTemperature(body.temperature));
+      case "auto_start_stop": return ok(d.setAutoStartStop(!!body.on));
+      case "builtin_timer": return ok(d.setBuiltinTimer(body.start, body.duration, !!body.enabled));
+      case "sync_clock": return ok(d.syncClock(true));
+      case "pause": await (body.paused ? d.disconnect() : d.connect()); return {ok: true};
+      case "off_timer": this.data.off_timer = body.minutes ? now() + body.minutes * 60 : null; this.save(); return this.snapshot();
+      case "max_run": this.data.max_run_hours = Math.max(0, +body.hours || 0); this.save(); return this.snapshot();
+      case "schedule": return this.snapshot();
+    }
+    const m = p.match(/^schedule\/(weekly|once)(?:\/(\w+))?$/);
+    if (m && method === "POST") return this.add(m[1], body);
+    if (m && method === "PATCH") return this.update(m[1], m[2], body);
+    if (m && method === "DELETE") { this.del(m[1], m[2]); return {ok: true}; }
+    throw new Error("unknown call " + p);
+  }
+}
+
+/* ---------------- app ---------------- */
+let MODE = null;          // "server" | "ble" | "demo"
+let hub = null, ble = null;
+let S = {}, sched = {weekly: [], once: [], next: [], history: []};
+let token = store.get("token", ""), simulated = false;
+let setMode = "temp", setVal = null, editing = 0, btTouched = false;
+
+async function api(path, method = "GET", body) {
+  if (hub) return hub.api(path, method, body);
+  const r = await fetch(path, {method, headers: {"Content-Type": "application/json", "X-Token": token}, body: body ? JSON.stringify(body) : undefined});
+  if (r.status === 401) { token = prompt("Access token") || ""; store.set("token", token); return api(path, method, body); }
+  return r.json();
+}
+
+let toastT;
+function toast(msg, bad) {
+  const t = $("toast"); t.textContent = msg; t.className = "show" + (bad ? " bad" : "");
+  clearTimeout(toastT); toastT = setTimeout(() => { t.className = ""; }, 2200);
+}
+async function act(promise, okMsg) {
+  try {
+    const r = await promise;
+    if (r && r.ok === false) toast(MODE === "demo" ? "Failed" : "No answer from the heater", true);
+    else if (okMsg) toast(okMsg);
+    return r;
+  } catch (e) { toast(e.message || "Failed", true); }
+}
+
+function fmtIn(sec) {
+  const m = Math.max(0, Math.round(sec / 60));
+  return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`;
+}
+const evLabel = e => e.action === "on" ? `On${e.mode === "temp" && e.value ? " · " + e.value + "°C" : e.mode === "level" && e.value ? " · level " + e.value : ""}` : "Off";
+const whenTxt = at => new Date(at).toLocaleString([], {weekday: "short", hour: "2-digit", minute: "2-digit"});
+
+function render() {
+  const h = S, conn = !!h.connected && !h.paused, step = h.running_step, on = !!h.running_state;
+  // connection chip
+  const dot = $("connDot"), label = MODE === "demo" ? "Demo" : MODE === "ble" ? "Bluetooth" : "Box";
+  dot.className = "dot " + (h.paused ? "warn" : conn ? "ok" : h.connecting ? "warn" : "bad");
+  $("connTxt").textContent = !MODE ? "Not connected" : h.paused ? `${label} · released` : h.connecting ? "Connecting…" : conn ? `${label} · connected` : `${label} · searching…`;
+  // hero
+  const cls = !conn ? "s-dis" : step === 1 || step === 2 ? "s-ign" : step === 3 ? "s-run" : step === 4 || step === 6 ? "s-cool" : "s-off";
+  $("hero").className = "card hero " + cls;
+  $("room").textContent = h.cab_temperature != null ? (Math.round(h.cab_temperature * 10) / 10).toString() : "--";
+  $("stateTxt").textContent = !MODE ? "Not connected" : !conn ? (h.paused ? "Released" : "Searching for heater…") : (STEP[step] ?? (on ? "On" : "Off"));
+  if (!editing) {
+    if (h.running_mode === 2) { setMode = "temp"; setVal = h.set_temp; }
+    else if (h.running_mode === 1) { setMode = "level"; setVal = h.set_level; }
+  }
+  const frac = setVal == null ? 0 : setMode === "temp" ? (setVal - 8) / 28 : setVal / 10;
+  $("arc").setAttribute("stroke-dasharray", `${(clamp(frac, 0, 1) * 100).toFixed(1)} 100`);
+  const running = on || step === 1 || step === 2 || step === 3;
+  $("powerTxt").textContent = running ? "Turn off" : "Turn on";
+  $("powerBtn").className = "power " + (running ? "danger" : "primary");
+  $("powerBtn").disabled = !conn;
+  // setpoint
+  $("modeTemp").classList.toggle("on", setMode === "temp");
+  $("modeLevel").classList.toggle("on", setMode === "level");
+  $("setVal").textContent = setVal == null ? "--" : setVal + (setMode === "temp" ? "°" : "");
+  $("setHint").textContent = setMode === "temp" ? "target room temperature" : "power level 1 – 10";
+  // stats + error
+  $("volt").textContent = h.supply_voltage != null ? h.supply_voltage.toFixed(1) : "--";
+  $("case").textContent = h.case_temperature != null ? Math.round(h.case_temperature) : "--";
+  $("errShort").textContent = h.error_code == null ? "--" : h.error_code ? "E" + h.error_code : "none";
+  const er = h.error_code ? ERR[h.error_code] || [`Error E${h.error_code}`, "Check the heater display and manual."] : null;
+  $("errCard").hidden = !er || !conn;
+  if (er) { $("errTitle").textContent = `E${h.error_code} · ${er[0]}`; $("errTip").textContent = er[1]; }
+  // built-in timer readback
+  const hasT = h.timer_start_min != null;
+  $("btRead").textContent = !conn ? "" : hasT ? `Heater now: ${h.timer_enabled ? "ON" : "off"} · starts ${hm(h.timer_start_min)} · runs ${h.timer_duration_min} min`
+    : "This heater doesn't report its timer, so settings are sent without confirmation.";
+  if (hasT && !btTouched) { $("btStart").value = hm(h.timer_start_min); $("btDur").value = h.timer_duration_min; $("btEn").checked = !!h.timer_enabled; }
+  // clock
+  const cs = h.clock_sync || {}, parts = [];
+  $("clkShow").textContent = h.clock_min != null ? hm(h.clock_min) : "--:--";
+  if (h.clock_min != null) {
+    const d = ((h.clock_min - nowMin() + 720) % 1440 + 1440) % 1440 - 720;
+    parts.push(d === 0 ? "correct" : `${Math.abs(d)} min ${d > 0 ? "fast" : "slow"}`);
+  } else if (conn) parts.push("heater doesn't report its clock");
+  if (cs.drift_min_per_day != null) parts.push(`drifts ${cs.drift_min_per_day > 0 ? "+" : ""}${cs.drift_min_per_day} min/day`);
+  if (cs.last_sync) parts.push(`synced ${new Date(cs.last_sync * 1000).toLocaleString([], {weekday: "short", hour: "2-digit", minute: "2-digit"})}`);
+  $("clkTxt").textContent = parts.join(" · ") || "—";
+  $("autoRow").hidden = h.auto_start_stop == null;
+  $("autoSS").checked = !!h.auto_start_stop;
+  // connection card
+  $("pause").checked = !!h.paused;
+  $("connInfo").textContent = [
+    MODE === "server" ? "ESP32 box / PC server: timers run 24/7." : MODE === "ble" ? "Direct Bluetooth from this device." : MODE === "demo" ? "Demo: a simulated heater, nothing is sent." : "Not connected.",
+    h.address && MODE !== "demo" ? `Heater ${h.address}` : "", h.protocol ? `protocol ${h.protocol}` : "", h.last_error ? `last error: ${h.last_error}` : "",
+  ].filter(Boolean).join(" · ");
+}
+
+function renderSched() {
+  const s = sched, t = now();
+  // countdown
+  $("offTxt").textContent = s.off_timer ? `Switches off in ${fmtIn(s.off_timer - t)} (at ${new Date(s.off_timer * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})})` : "No countdown running";
+  $("offCancel").hidden = !s.off_timer;
+  $("maxRun").value = String(s.max_run_hours || 0);
+  // week chart: slots crossing midnight are drawn on two days
+  const rows = DAYS.map(() => []);
+  for (const r of s.weekly) {
+    const a = toMin(r.on), b = toMin(r.off);
+    for (const d of r.days) {
+      if (b > a) rows[d].push([a, b, r]);
+      else { rows[d].push([a, 1440, r]); if (b > 0) rows[(d + 1) % 7].push([0, b, r]); }
+    }
+  }
+  const today = (new Date().getDay() + 6) % 7;
+  $("week").innerHTML = `<div class="wk-row"><span></span><div class="wk-scale"><i>00</i><i>06</i><i>12</i><i>18</i><i>24</i></div></div>` +
+    DAYS.map((n, i) => `<div class="wk-row ${i === today ? "today" : ""}"><span>${n}</span><div class="wk-track">${
+      rows[i].map(([a, b, r]) => `<button class="blk ${r.enabled === false ? "off" : ""}" style="left:${a / 14.4}%;width:${Math.max(1.5, (b - a) / 14.4)}%" data-slot="${r.id}" aria-label="${r.on} to ${r.off}"></button>`).join("")
+    }${i === today ? `<i class="now" style="left:${nowMin() / 14.4}%"></i>` : ""}</div></div>`).join("");
+  const val = r => r.mode === "keep" ? "keeps last setting" : r.mode === "temp" ? `${r.value}°C` : `level ${r.value}`;
+  const days = r => r.days.length === 7 ? "every day" : r.days.length === 5 && !r.days.includes(5) && !r.days.includes(6) ? "weekdays" : r.days.map(d => DAYS[d]).join(" ");
+  $("slotList").innerHTML = s.weekly.length ? s.weekly.map(r => `
+    <div class="item ${r.enabled === false ? "dim" : ""}"><button class="link" style="all:unset;cursor:pointer;flex:1" data-slot="${r.id}">
+      <div class="t">${r.on} → ${r.off}</div><div class="s">${days(r)} · ${val(r)}</div></button>
+      <label class="sw"><input type="checkbox" data-toggle="${r.id}" ${r.enabled === false ? "" : "checked"}><i></i></label></div>`).join("")
+    : `<p class="empty">No weekly slots yet. Tap “+ Add” to create one.</p>`;
+  const once = s.once.filter(o => o.enabled !== false);
+  $("onceList").innerHTML = once.length ? once.map(o => `
+    <div class="item"><div><div class="t">${o.action === "on" ? "Turn on" : "Turn off"} · ${whenTxt(o.at)}</div>
+      <div class="s">${o.action === "on" && o.mode !== "keep" ? val(o) : new Date(o.at).toLocaleDateString()}</div></div>
+      <button class="small danger" data-delonce="${o.id}" aria-label="Delete">✕</button></div>`).join("") : `<p class="empty">None</p>`;
+  $("nextList").innerHTML = s.next.length ? s.next.map(e => `
+    <div class="item"><div><div class="t">${whenTxt(e.at)} · ${esc(evLabel(e))}</div><div class="s">${esc(e.src)}</div></div>
+      <span class="dot ${e.action === "on" ? "ok" : ""}"></span></div>`).join("") : `<p class="empty">Nothing scheduled</p>`;
+  const n = s.next[0];
+  $("nextHomeTxt").textContent = n ? `${evLabel(n)} · ${whenTxt(n.at)} (in ${fmtIn(new Date(n.at) / 1000 - t)})` : "Nothing scheduled";
+  $("hist").innerHTML = s.history.slice().reverse().map(x => `<div class="item"><div><div class="t">${esc(x.action)} · ${esc(x.result)}</div><div class="s">${esc(x.t.replace("T", " "))} · ${esc(x.src)}</div></div></div>`).join("") || `<p class="empty">Empty</p>`;
+}
+
+async function load() {
+  if (!MODE) return;
+  try {
+    const r = await api("api/state");
+    S = {...r.heater, paused: r.paused}; sched = r.schedule;
+    render(); renderSched();
+  } catch (e) { console.warn(e); }
+}
+
+function banner() {
+  const b = $("banner"), note = $("localNote");
+  note.hidden = !MODE || MODE === "server";
+  note.textContent = MODE === "ble" ? "Direct Bluetooth: weekly and one-time timers only fire while this page stays open. For timers that always work use the heater's built-in timer (Heater tab), or the ESP32 box."
+    : "Demo: timers fire while this page is open.";
+  b.hidden = !(MODE === "demo" || (MODE === "server" && simulated));
+  if (MODE === "demo") {
+    b.innerHTML = `Demo mode: a simulated heater, nothing is sent. <button class="link" id="bConn">Connect the real heater</button>`;
+    $("bConn").onclick = openConnect;
+  } else b.textContent = "The server is running its simulator: set the heater address in config.json.";
+}
+
+/* ---------- modes ---------- */
+function startLocal(mode, dev) {
+  MODE = mode; store.set("mode", mode);
+  hub = new LocalHub(dev, mode + ":", mode === "demo");
+  $("pinRow").hidden = mode !== "ble";
+  $("pauseRow").hidden = mode !== "ble";
+  $("autoClkRow").hidden = mode !== "ble";
+  $("changeConn").hidden = false;
+  banner(); load();
+}
+function startDemo() {
+  const dev = new FakeDevice(st => { if (MODE === "demo") { S = st; render(); } });
+  startLocal("demo", dev);
+  $("dlgConnect").close();
+}
+async function startBle(all) {
+  $("cErr").textContent = "";
+  if (!ble) ble = new BleDevice(st => { if (MODE !== "demo") { S = st; render(); } });
+  try {
+    await ble.choose(all);
+    startLocal("ble", ble);
+    $("dlgConnect").close();
+    toast("Connected");
+  } catch (e) {
+    if (e.name === "NotFoundError") return;  // user closed the device picker
+    $("cErr").textContent = e.message;
+  }
+}
+async function startServer() {
+  MODE = "server";
+  $("pauseRow").hidden = false; $("changeConn").hidden = true;
+  const r = await api("api/state");
+  simulated = r.simulated;
+  banner();
+  load(); setInterval(load, 30000);
+  (function ws() {
+    const u = new URL("ws", location.href); u.protocol = location.protocol === "https:" ? "wss:" : "ws:"; u.searchParams.set("token", token);
+    const w = new WebSocket(u);
+    w.onmessage = ev => { const m = JSON.parse(ev.data); if (m.type === "state") { S = m.state; render(); } };
+    w.onclose = () => setTimeout(ws, 2000);
+  })();
+}
+
+function openConnect() {
+  const supported = !!navigator.bluetooth;
+  $("cBle").disabled = !supported; $("cBleAll").hidden = !supported;
+  const name = store.get("bleName", "");
+  $("cBle").textContent = name ? `Connect to ${name}` : "Connect via Bluetooth";
+  $("cBleNote").textContent = supported ? "Pick your heater (name like BYD-… ) in the list that opens."
+    : "This browser has no Bluetooth access. Use Chrome on Android (or Edge/Chrome on a computer).";
+  $("cErr").textContent = "";
+  if (!$("dlgConnect").open) $("dlgConnect").showModal();
+}
+
+/* ---------- events ---------- */
+document.querySelectorAll("nav.tabs button, [data-go]").forEach(b => b.addEventListener("click", () => {
+  const tab = b.dataset.tab || b.dataset.go;
+  document.querySelectorAll(".panel").forEach(p => p.classList.toggle("active", p.id === "p-" + tab));
+  document.querySelectorAll("nav.tabs button").forEach(x => x.classList.toggle("on", x.dataset.tab === tab));
+  scrollTo({top: 0});
+}));
+$("connChip").onclick = () => MODE === "server" ? document.querySelector('[data-tab="heater"]').click() : openConnect();
+$("changeConn").onclick = openConnect;
+$("cBle").onclick = () => startBle(false);
+$("cBleAll").onclick = () => startBle(true);
+$("cDemo").onclick = () => { if (MODE !== "demo") location.hash = "demo", location.reload(); else $("dlgConnect").close(); };
+$("cClose").onclick = () => $("dlgConnect").close();
+
+$("powerBtn").onclick = () => {
+  const running = !!S.running_state || [1, 2, 3].includes(S.running_step);
+  act(api("api/power", "POST", {on: !running}), running ? "Turning off…" : "Starting…").then(load);
+};
+$("modeTemp").onclick = () => { if (setMode !== "temp") { setMode = "temp"; setVal = S.set_temp || 21; render(); act(api("api/temperature", "POST", {temperature: setVal}), "Thermostat mode"); } };
+$("modeLevel").onclick = () => { if (setMode !== "level") { setMode = "level"; setVal = S.set_level || 5; render(); act(api("api/level", "POST", {level: setVal}), "Power level mode"); } };
+let debounce;
+function step(d) {
+  const [lo, hi] = setMode === "temp" ? [8, 36] : [1, 10];
+  setVal = clamp((setVal ?? lo) + d, lo, hi);
+  editing++; render();
+  clearTimeout(debounce);
+  debounce = setTimeout(async () => {
+    await act(setMode === "temp" ? api("api/temperature", "POST", {temperature: setVal}) : api("api/level", "POST", {level: setVal}));
+    setTimeout(() => { editing = 0; }, 2500);  // let the heater's reply catch up before trusting it again
+  }, 600);
+}
+$("minus").onclick = () => step(-1);
+$("plus").onclick = () => step(1);
+$("offBtns").onclick = e => {
+  const m = e.target.closest("button")?.dataset.m;
+  if (m) act(api("api/off_timer", "POST", {minutes: +m}), `Off in ${fmtIn(m * 60)}`).then(s => { if (s?.weekly) { sched = s; renderSched(); } });
+};
+$("offCancel").onclick = () => act(api("api/off_timer", "POST", {minutes: null}), "Countdown cancelled").then(s => { if (s?.weekly) { sched = s; renderSched(); } });
+$("maxRun").onchange = e => act(api("api/max_run", "POST", {hours: +e.target.value}), "Saved").then(load);
+["btStart", "btDur", "btEn"].forEach(id => $(id).addEventListener("input", () => { btTouched = true; }));
+$("btSave").onclick = async () => {
+  $("btSave").disabled = true;
+  await act(api("api/builtin_timer", "POST", {start: $("btStart").value, duration: +$("btDur").value, enabled: $("btEn").checked}), "Timer saved in the heater");
+  btTouched = false; $("btSave").disabled = false; load();
+};
+$("clkSync").onclick = () => act(api("api/sync_clock", "POST"), "Clock set").then(load);
+$("autoClk").checked = store.get("autoClock", true);
+$("autoClk").onchange = e => store.set("autoClock", e.target.checked);
+$("autoSS").onchange = e => act(api("api/auto_start_stop", "POST", {on: e.target.checked}), "Saved");
+$("pause").onchange = e => act(api("api/pause", "POST", {paused: e.target.checked}), e.target.checked ? "Bluetooth released" : "Reconnecting…").then(load);
+$("pin").value = store.get("pin", 1234);
+$("pin").onchange = e => { const v = clamp(+e.target.value || 1234, 0, 9999); store.set("pin", v); e.target.value = v; toast("Password saved"); };
+
+// weekly slot sheet
+let editId = null;
+$("sDays").innerHTML = DAYS.map((d, i) => `<label><input type="checkbox" value="${i}"><span>${d[0]}${d[1]}</span></label>`).join("");
+function setValField(sel, wrap, input) {
+  const m = $(sel).value; $(wrap).hidden = m === "keep";
+  input = $(input); input.min = m === "temp" ? 8 : 1; input.max = m === "temp" ? 36 : 10;
+  if (!input.value || +input.value < +input.min || +input.value > +input.max) input.value = m === "temp" ? 21 : 5;
+}
+function slotHint() {
+  const a = $("sOn").value, b = $("sOff").value;
+  $("sHint").textContent = a && b && toMin(b) <= toMin(a) ? "Turns off the next morning (runs past midnight)." : "";
+}
+function openSlot(id) {
+  const r = sched.weekly.find(x => x.id === id);
+  editId = r ? r.id : null;
+  $("slotTitle").textContent = r ? "Edit weekly slot" : "New weekly slot";
+  document.querySelectorAll("#sDays input").forEach(i => { i.checked = r ? r.days.includes(+i.value) : +i.value < 5; });
+  $("sOn").value = r?.on || "07:00"; $("sOff").value = r?.off || "08:30";
+  $("sMode").value = r?.mode || "temp"; $("sVal").value = r?.value ?? "";
+  $("sEn").checked = r ? r.enabled !== false : true;
+  $("sDel").hidden = !r;
+  setValField("sMode", "sValWrap", "sVal"); slotHint();
+  $("dlgSlot").showModal();
+}
+$("sMode").onchange = () => { $("sVal").value = ""; setValField("sMode", "sValWrap", "sVal"); };
+$("sOn").oninput = $("sOff").oninput = slotHint;
+$("addSlot").onclick = () => openSlot(null);
+document.addEventListener("click", e => {
+  const s = e.target.closest("[data-slot]"); if (s) openSlot(s.dataset.slot);
+  const d = e.target.closest("[data-delonce]"); if (d) act(api(`api/schedule/once/${d.dataset.delonce}`, "DELETE"), "Removed").then(load);
+});
+document.addEventListener("change", e => {
+  const id = e.target.dataset?.toggle;
+  if (id) act(api(`api/schedule/weekly/${id}`, "PATCH", {enabled: e.target.checked}), e.target.checked ? "Slot on" : "Slot paused").then(load);
+});
+$("dlgSlot").addEventListener("close", async () => {
+  const v = $("dlgSlot").returnValue; $("dlgSlot").returnValue = "";
+  if (v === "delete" && editId) { await act(api(`api/schedule/weekly/${editId}`, "DELETE"), "Slot deleted"); return load(); }
+  if (v !== "save") return;
+  const days = [...document.querySelectorAll("#sDays input:checked")].map(i => +i.value);
+  if (!days.length) return toast("Pick at least one day", true);
+  const body = {days, on: $("sOn").value, off: $("sOff").value, mode: $("sMode").value, value: $("sMode").value === "keep" ? null : +$("sVal").value, enabled: $("sEn").checked};
+  await act(editId ? api(`api/schedule/weekly/${editId}`, "PATCH", body) : api("api/schedule/weekly", "POST", body), "Slot saved");
+  load();
+});
+
+// one-time sheet
+let oAction = "on";
+$("oAction").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  oAction = b.dataset.v;
+  [...$("oAction").children].forEach(x => x.classList.toggle("on", x === b));
+  $("oSet").hidden = oAction === "off";
+};
+$("oMode").onchange = () => { $("oVal").value = ""; setValField("oMode", "oValWrap", "oVal"); };
+$("addOnce").onclick = () => {
+  const d = new Date(Date.now() + 3600e3); d.setMinutes(0, 0, 0);
+  $("oAt").value = iso(d); $("oMode").value = "keep"; setValField("oMode", "oValWrap", "oVal");
+  $("dlgOnce").showModal();
+};
+$("dlgOnce").addEventListener("close", async () => {
+  const v = $("dlgOnce").returnValue; $("dlgOnce").returnValue = "";
+  if (v !== "save" || !$("oAt").value) return;
+  if (new Date($("oAt").value) <= new Date()) return toast("That time is in the past", true);
+  const mode = $("oMode").value;
+  await act(api("api/schedule/once", "POST", {at: $("oAt").value, action: oAction, mode, value: mode === "keep" ? null : +$("oVal").value}), "Timer added");
+  load();
+});
+
+setInterval(() => { if (MODE) renderSched(); }, 30000);  // keep countdowns fresh
+
+/* ---------- boot: served by the ESP32/PC box -> server mode, otherwise Bluetooth or demo ---------- */
+(async function boot() {
+  if (location.hash === "#demo") { history.replaceState(null, "", location.pathname); store.set("mode", "demo"); }
+  if (location.protocol.startsWith("http") && !location.hostname.endsWith("github.io")) {
+    try {
+      const r = await fetch("api/state", {headers: {"X-Token": token}});
+      if (r.ok || r.status === 401) return startServer();
+    } catch {}
+  }
+  const mode = store.get("mode", null);
+  if (mode === "demo") return startDemo();
+  if (mode === "ble" && navigator.bluetooth) {
+    ble = new BleDevice(st => { if (MODE !== "demo") { S = st; render(); } });
+    try { if (await ble.resume()) return startLocal("ble", ble); } catch (e) { console.warn(e); }
+  }
+  render(); openConnect();
+})();
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+</script>
+</body>
+</html>
