@@ -133,6 +133,11 @@ class HeaterLink:
                 and await self._cmd(CMD_TIMER_DURATION, max(1, int(duration_min)))
                 and await self._cmd(CMD_TIMER_ENABLE, 1 if enabled else 0))
 
+    async def set_clock(self, hhmm: str) -> bool:
+        """Set the heater clock to an explicit time (manual/testing)."""
+        h, m = (int(x) for x in hhmm.split(":"))
+        return await self._cmd(CMD_CLOCK, h * 60 + m)
+
     async def sync_clock(self, force: bool = True) -> bool:
         """Set the heater clock to PC time. Unforced: only every clock_sync_s, and on heaters that
         report their clock only when it is off by a minute or more."""

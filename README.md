@@ -1,4 +1,42 @@
-# DieselHeater
+# Diesel Heater BLE
+
+Turn your Chinese diesel heater (Vevor, BYD and other heaters that use the **AirHeaterBLE** app) on and off from your phone's
+browser over Bluetooth. You don't need to install an app, run a server or use a cloud account: open the page, connect, and tap **Turn on**.
+
+**Open the app: https://zenfortv.github.io/diesel-heater-ble/**
+
+<p>
+  <img src="docs/phone.png" alt="Phone view: room temperature, Turn on button, thermostat" width="260">
+  &nbsp;
+  <img src="docs/desktop.png" alt="Wide view: home, timers and heater settings side by side" width="520">
+</p>
+
+*(screenshots from the built-in demo mode)*
+
+## How to use it
+1. On an **Android phone, open the link above in Chrome**. iPhone Safari has no Web Bluetooth, so it won't work there.
+2. Chrome menu ⋮ → **Add to Home screen**. From then on it opens like a normal app, and it also works offline.
+3. Switch the heater on at the mains and **close the AirHeaterBLE app**. The heater accepts only one Bluetooth connection at a time.
+4. Tap **Connect via Bluetooth** and pick your heater from the list (named like `BYD-…`).
+5. Tap **Turn on**. Use the thermostat (8–36 °C) or the power level (1–10), and **Switch off in** 30 min / 1 h / 2 h / 4 h.
+
+Each morning: open the home-screen icon, tap Connect, then tap Turn on. That takes about 5 seconds, and you need to be within Bluetooth range (~10 m).
+
+Not sure yet? Tap **Try the demo**. It runs a simulated heater and sends nothing.
+
+### What the tabs do
+- **Home**: power, thermostat or power level, room and heater temperature, battery voltage, faults explained in plain words.
+- **Timers**: weekly on/off slots and one-time timers. In direct Bluetooth mode these only run *while the page is open*.
+- **Heater**: the heater's **built-in daily timer** (start time + run minutes). It is stored inside the heater, so it fires with no phone around (still being tested, see below). Also the heater clock, auto start/stop and safety auto-off.
+
+### Limits
+- The phone only controls the heater while it's within Bluetooth range.
+- The app's weekly timers need the page to stay open. If you want them to run 24/7 with no phone, use the always-on "box" below (PC or a ~5 € ESP32).
+- The built-in timer and clock commands (10–13) come from the official app's code and are **not yet confirmed** on a real heater.
+
+---
+
+# Technical details
 
 Control an AirHeaterBLE diesel heater (Vevor / BYD / generic Chinese) from the phone and laptop, with the
 on/off timers the official app lacks and automatic correction of the heater's drifting clock.
@@ -8,7 +46,7 @@ One self-contained page, installable as an app on Android ("Add to Home screen")
 
 | Mode | When | Timers | Clock fix |
 |---|---|---|---|
-| **Box** | page opened from the ESP32 box / PC server (`http://<box>:8765`) | weekly, one-time, countdown, 24/7 | automatic, hourly |
+| **Box** | page opened from the ESP32 box / PC server (`http://<box>:8770`) | weekly, one-time, countdown, 24/7 | automatic, hourly |
 | **Direct Bluetooth** | page opened from GitHub Pages in Chrome (Android) -> "Connect via Bluetooth" | only while the page is open + the heater's built-in timer | when the page is open |
 | **Demo** | "Try the demo" | simulated | simulated |
 
@@ -21,7 +59,7 @@ Web Bluetooth needs `https://` (GitHub Pages) or `localhost`. The page's protoco
 the Python one by `tests/test_web_protocol.py`.
 
 ```
-phone / laptop ──Wi-Fi──► ESP32 box or PC (server.py :8765) ──BLE──► heater      (Box mode)
+phone / laptop ──Wi-Fi──► ESP32 box or PC (server.py :8770) ──BLE──► heater      (Box mode)
 phone (Chrome) ─────────────────────────────────────────────BLE──► heater      (Direct mode)
 ```
 
@@ -30,7 +68,7 @@ phone (Chrome) ─────────────────────�
 .venv\Scripts\python.exe scan.py          # find the heater address (close the phone app first!)
 .venv\Scripts\python.exe probe.py <addr>  # read-only test: connects and asks for status only
 # edit config.json: "address": "XX:XX:...", "simulate": false
-.venv\Scripts\python.exe server.py        # prints http://<pc-ip>:8765
+.venv\Scripts\python.exe server.py        # prints http://<pc-ip>:8770
 ```
 With `"simulate": true` (default) a fake heater is used, so you can try the app without hardware.
 
@@ -83,8 +121,8 @@ Readback of clock/timer (bytes 19-25 of the decrypted frame) only exists on the 
 The newest app also has a multi-slot weekly timer, but only over the separate "V2.1" protocol (header `FE AA`).
 
 ## Remote access later
-- Easiest: install Tailscale on the room PC and the phone -> open `http://<pc-tailscale-name>:8765` from anywhere.
-  `tailscale serve 8765` gives HTTPS, which also allows a full app install on Android.
+- Easiest: install Tailscale on the room PC and the phone -> open `http://<pc-tailscale-name>:8770` from anywhere.
+  `tailscale serve 8770` gives HTTPS, which also allows a full app install on Android.
 - If you expose it any other way, set `"token"` in config.json first.
 - Cheaper always-on alternative to a PC: ESP32 (~5 EUR) with warehog's ESPHome component + Home Assistant.
 
@@ -93,5 +131,5 @@ The newest app also has a multi-slot weekly timer, but only over the separate "V
 (one-time: repo Settings -> Pages -> Source "GitHub Actions"). `config.json` and `schedules.json` stay local.
 
 ## Notes
-- Windows firewall must allow Python on port 8765 for the phone to reach it.
+- Windows firewall must allow Python on port 8770 for the phone to reach it.
 - Commands 10-13 (clock + built-in timer) come from the AirHeaterBLE app code but are not yet confirmed on the real heater.

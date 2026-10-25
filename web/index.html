@@ -230,6 +230,8 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       <h2>Heater clock</h2>
       <div class="row between"><div><div class="t" id="clkShow" style="font-size:22px;font-weight:700">--:--</div><div class="mute" id="clkTxt">—</div></div>
         <button id="clkSync">Sync now</button></div>
+      <div class="row between"><span>Set by hand<br><span class="mute">test: pick an odd time, check the heater display</span></span>
+        <span class="row"><input type="time" id="clkManual" style="width:auto"><button id="clkSet">Set</button></span></div>
       <div class="row between" id="autoClkRow" hidden><span>Auto-correct when connected<br><span class="mute">fixes drift whenever the page is open</span></span>
         <label class="sw"><input type="checkbox" id="autoClk"><i></i></label></div>
     </div>
@@ -398,6 +400,7 @@ class Device {
   async setTemperature(t) { return await this.ensureMode(2) && this.cmd(4, clamp(Math.round(t), 8, 36)); }
   async setLevel(l) { return await this.ensureMode(1) && this.cmd(4, clamp(Math.round(l), 1, 10)); }
   setAutoStartStop(on) { return this.cmd(18, on ? 1 : 0); }
+  setClock(hhmm) { return this.cmd(10, toMin(hhmm)); }
   async setBuiltinTimer(start, dur, en) {
     return await this.syncClock(true) && await this.cmd(11, toMin(start)) &&
       await this.cmd(12, clamp(dur | 0, 1, 1440)) && this.cmd(13, en ? 1 : 0);
@@ -658,6 +661,7 @@ class LocalHub {
       case "auto_start_stop": return ok(d.setAutoStartStop(!!body.on));
       case "builtin_timer": return ok(d.setBuiltinTimer(body.start, body.duration, !!body.enabled));
       case "sync_clock": return ok(d.syncClock(true));
+      case "set_clock": return ok(d.setClock(body.time));
       case "pause": await (body.paused ? d.disconnect() : d.connect()); return {ok: true};
       case "off_timer": this.data.off_timer = body.minutes ? now() + body.minutes * 60 : null; this.save(); return this.snapshot();
       case "max_run": this.data.max_run_hours = Math.max(0, +body.hours || 0); this.save(); return this.snapshot();
@@ -925,6 +929,7 @@ $("btSave").onclick = async () => {
   btTouched = false; $("btSave").disabled = false; load();
 };
 $("clkSync").onclick = () => act(api("api/sync_clock", "POST"), "Clock set").then(load);
+$("clkSet").onclick = () => $("clkManual").value && act(api("api/set_clock", "POST", {time: $("clkManual").value}), `Clock set to ${$("clkManual").value}`);
 $("autoClk").checked = store.get("autoClock", true);
 $("autoClk").onchange = e => store.set("autoClock", e.target.checked);
 $("autoSS").onchange = e => act(api("api/auto_start_stop", "POST", {on: e.target.checked}), "Saved");

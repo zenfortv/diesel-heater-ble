@@ -1,6 +1,6 @@
 """Diesel heater web server: BLE link + timers + phone/laptop web app.
 
-Run:  .venv\\Scripts\\python.exe server.py      then open http://<this-pc-ip>:8765
+Run:  .venv\\Scripts\\python.exe server.py      then open http://<this-pc-ip>:8770
 Config: config.json (created on first run).
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ from scheduler import Scheduler
 
 ROOT = Path(__file__).parent
 CONFIG = ROOT / "config.json"
-DEFAULTS = {"address": "", "passkey": 1234, "port": 8765, "simulate": True, "token": "", "poll_seconds": 2,
+DEFAULTS = {"address": "", "passkey": 1234, "port": 8770, "simulate": True, "token": "", "poll_seconds": 2,
             "clock_sync_minutes": 60}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s", datefmt="%H:%M:%S")
@@ -104,6 +104,10 @@ def build_app(cfg: dict) -> web.Application:
     @r.post("/api/sync_clock")
     async def sync_clock(_):
         return web.json_response({"ok": await heater.sync_clock(force=True)})
+
+    @r.post("/api/set_clock")
+    async def set_clock(req):
+        return web.json_response({"ok": await heater.set_clock((await req.json())["time"])})
 
     @r.post("/api/pause")
     async def pause(req):
