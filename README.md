@@ -45,6 +45,10 @@ Tested on the colour "AirHeater Controller" panel. The official AirHeaterBLE app
 - The app's weekly timers need the page to stay open. If you want them to run 24/7 with no phone, use the always-on "box" below (PC or a ~5 € ESP32).
 - The built-in timer and clock commands (10–13) come from the official app's code and are **not yet confirmed** on a real heater.
 
+## Feedback and forks
+Found a bug or have an idea? Open an [Issue](../../issues). The original repo is maintained by its author only and
+pull requests are off, but **forks are welcome**: see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ---
 
 # Technical details
