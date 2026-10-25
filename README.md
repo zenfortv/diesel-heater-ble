@@ -29,6 +29,17 @@ Not sure yet? Tap **Try the demo**. It runs a simulated heater and sends nothing
 - **Timers**: weekly on/off slots and one-time timers. In direct Bluetooth mode these only run *while the page is open*.
 - **Heater**: the heater's **built-in daily timer** (start time + run minutes). It is stored inside the heater, so it fires with no phone around (still being tested, see below). Also the heater clock, auto start/stop and safety auto-off.
 
+### Change the heater's Bluetooth password (default 1234)
+Anyone nearby with the app can control a heater that still uses 1234. To change it:
+1. Connect, then **Heater** tab → **Change heater password**, and type 4 new digits → **Next**.
+2. On the heater's panel, with the heater switched off: open the **engineering mode**, go to the Bluetooth password item
+   (**En09**, or **010** on some panels), and **keep the gear button pressed** until the number on the panel changes to your new PIN.
+3. The panel shows **SUC**. Tap **The panel showed SUC** in the app. Done.
+
+If it doesn't work, tap **go back** and the app returns to the old password. Nothing changes on the heater until the panel shows SUC.
+Tested on the colour "AirHeater Controller" panel. The official AirHeaterBLE app also needs the new password afterwards
+(Setup → Password).
+
 ### Limits
 - The phone only controls the heater while it's within Bluetooth range.
 - The app's weekly timers need the page to stay open. If you want them to run 24/7 with no phone, use the always-on "box" below (PC or a ~5 € ESP32).

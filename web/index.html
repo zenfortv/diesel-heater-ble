@@ -249,6 +249,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       <p id="connInfo" class="mute"></p>
       <div class="row between" id="pinRow" hidden><span>Heater password<br><span class="mute">same as in AirHeaterBLE (default 1234)</span></span>
         <input id="pin" inputmode="numeric" maxlength="4" style="width:90px;text-align:center"></div>
+      <button id="pinChange" hidden>Change heater password</button>
       <div class="row between" id="pauseRow" hidden><span>Release Bluetooth<br><span class="mute">lets the AirHeaterBLE app connect</span></span>
         <label class="sw"><input type="checkbox" id="pause"><i></i></label></div>
       <button id="changeConn">Change connection</button>
@@ -275,6 +276,28 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
   <p class="err" id="cErr"></p>
   <p class="mute">Running the ESP32 box or the PC server? Open its address instead (for example <b>http://heater.local</b>): timers then work 24/7.</p>
   <button class="small" id="cClose">Close</button>
+</div></dialog>
+
+<dialog id="dlgPin"><div class="sheet">
+  <h3>Change heater password</h3>
+  <div id="pinStep1">
+    <p class="mute">The new password is set here, then confirmed on the heater's panel. If anything goes wrong, nothing changes on the heater.</p>
+    <label class="f">New password (4 digits)<input id="pinNew" inputmode="numeric" maxlength="4" pattern="[0-9]{4}"></label>
+    <p class="err" id="pinErr"></p>
+    <div class="grid2"><button id="pinCancel1">Cancel</button><button class="primary" id="pinStart">Next</button></div>
+  </div>
+  <div id="pinStep2" hidden>
+    <p>Now on the heater's panel:</p>
+    <ol class="mute">
+      <li>Heater switched off (standby): open the <b>engineering mode</b> (gear + power for 3 s on most panels, or ▲ + ▼).</li>
+      <li>Step to the Bluetooth password item (<b>En09</b>, or <b>010</b>).</li>
+      <li><b>Keep the gear button pressed</b> until the number on the panel changes to <b id="pinShow"></b>.</li>
+      <li>The panel shows <b>SUC</b>: done.</li>
+    </ol>
+    <p id="pinLive" class="mute">Waiting for the heater…</p>
+    <button class="primary big" id="pinDone">The panel showed SUC</button>
+    <button id="pinUndo">It didn't work: go back to <span id="pinOld"></span></button>
+  </div>
 </div></dialog>
 
 <dialog id="dlgSlot"><form method="dialog" class="sheet" id="slotForm">
@@ -481,7 +504,7 @@ class BleDevice extends Device {
     this.want = false; this.lastClock = 0;
     this.onLost = () => this.lost();
   }
-  get pin() { return +store.get("pin", 1234) || 1234; }
+  get pin() { const v = +store.get("pin", 1234); return Number.isInteger(v) && v >= 0 && v <= 9999 ? v : 1234; }
   async choose(all) {
     if (this.dev?.gatt.connected) { this.want = false; this.dev.gatt.disconnect(); }
     const opt = all ? {acceptAllDevices: true, optionalServices: SERVICES}
@@ -833,7 +856,7 @@ function banner() {
 function startLocal(mode, dev) {
   MODE = mode; store.set("mode", mode);
   hub = new LocalHub(dev, mode + ":", mode === "demo");
-  $("pinRow").hidden = mode !== "ble";
+  $("pinRow").hidden = $("pinChange").hidden = mode !== "ble";
   $("pauseRow").hidden = mode !== "ble";
   $("autoClkRow").hidden = mode !== "ble";
   $("changeConn").hidden = false;
@@ -934,8 +957,44 @@ $("autoClk").checked = store.get("autoClock", true);
 $("autoClk").onchange = e => store.set("autoClock", e.target.checked);
 $("autoSS").onchange = e => act(api("api/auto_start_stop", "POST", {on: e.target.checked}), "Saved");
 $("pause").onchange = e => act(api("api/pause", "POST", {paused: e.target.checked}), e.target.checked ? "Bluetooth released" : "Reconnecting…").then(load);
-$("pin").value = store.get("pin", 1234);
-$("pin").onchange = e => { const v = clamp(+e.target.value || 1234, 0, 9999); store.set("pin", v); e.target.value = v; toast("Password saved"); };
+$("pin").value = String(store.get("pin", 1234)).padStart(4, "0");
+$("pin").onchange = e => { const v = /^\d{1,4}$/.test(e.target.value.trim()) ? +e.target.value : 1234; store.set("pin", v); e.target.value = String(v).padStart(4, "0"); toast("Password saved"); };
+
+// change the heater's password: the app switches to the new PIN, the panel's Bluetooth-match item
+// learns it from the next command (official app does the same). Closing without SUC restores the old PIN.
+const pad4 = v => String(v).padStart(4, "0");
+let pinOld = null, pinWatch = null;
+function pinEnd(keepNew) {
+  clearInterval(pinWatch); pinWatch = null;
+  if (!keepNew && pinOld != null) store.set("pin", pinOld);
+  $("pin").value = String(store.get("pin", 1234)).padStart(4, "0");
+  toast(keepNew ? `Heater password is now ${pad4(store.get("pin", 1234))}` : `Back to password ${pad4(pinOld)}`);
+  pinOld = null;
+  if ($("dlgPin").open) $("dlgPin").close();
+}
+$("pinChange").onclick = () => {
+  $("pinStep1").hidden = false; $("pinStep2").hidden = true;
+  $("pinNew").value = ""; $("pinErr").textContent = "";
+  $("dlgPin").showModal();
+};
+$("pinCancel1").onclick = () => $("dlgPin").close();
+$("pinStart").onclick = () => {
+  const v = $("pinNew").value.trim();
+  if (!/^\d{4}$/.test(v)) { $("pinErr").textContent = "Use exactly 4 digits."; return; }
+  if (+v === store.get("pin", 1234)) { $("pinErr").textContent = "That is already the current password."; return; }
+  pinOld = store.get("pin", 1234);
+  store.set("pin", +v);
+  $("pinShow").textContent = v; $("pinOld").textContent = pad4(pinOld);
+  $("pinStep1").hidden = true; $("pinStep2").hidden = false;
+  const since = now();
+  pinWatch = setInterval(() => {
+    const ok = ble?.s.updated > since + 1;
+    $("pinLive").textContent = ok ? "✓ The heater is answering with the new password." : "Waiting for the heater…";
+  }, 1000);
+};
+$("pinDone").onclick = () => pinEnd(true);
+$("pinUndo").onclick = () => pinEnd(false);
+$("dlgPin").addEventListener("close", () => { if (pinOld != null) pinEnd(false); });
 
 // weekly slot sheet
 let editId = null;
