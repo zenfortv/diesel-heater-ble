@@ -718,6 +718,7 @@ class LocalHub {
 
 /* ---------------- app ---------------- */
 let MODE = null;          // "server" | "ble" | "demo"
+const APP = !!window.HeaterApp;  // running inside the Android app (android/)
 let hub = null, ble = null;
 let S = {}, sched = {weekly: [], once: [], next: [], history: []};
 let token = store.get("token", ""), simulated = false;
@@ -804,7 +805,7 @@ function render() {
   // connection card
   $("pause").checked = !!h.paused;
   $("connInfo").textContent = [
-    MODE === "server" ? "ESP32 box / PC server: timers run 24/7." : MODE === "ble" ? "Direct Bluetooth from this device." : MODE === "demo" ? "Demo: a simulated heater, nothing is sent." : "Not connected.",
+    MODE === "server" ? (APP ? "Android app: stays connected in the background, timers run with the screen off." : "ESP32 box / PC server: timers run 24/7.") : MODE === "ble" ? "Direct Bluetooth from this device." : MODE === "demo" ? "Demo: a simulated heater, nothing is sent." : "Not connected.",
     h.address && MODE !== "demo" ? `Heater ${h.address}` : "", h.protocol ? `protocol ${h.protocol}` : "", h.last_error ? `last error: ${h.last_error}` : "",
   ].filter(Boolean).join(" · ");
 }
@@ -903,9 +904,13 @@ async function startBle(all) {
 }
 async function startServer() {
   MODE = "server";
-  $("pauseRow").hidden = false; $("changeConn").hidden = true;
+  $("pauseRow").hidden = false; $("changeConn").hidden = !APP;
   const r = await api("api/state");
   simulated = r.simulated;
+  if (APP) {  // inside the Android app: heater picker + password live in the app
+    $("changeConn").textContent = "Choose heater";
+    $("pinRow").hidden = false; $("pin").value = String(r.heater.pin ?? 1234).padStart(4, "0");
+  }
   banner();
   load(); setInterval(load, 30000);
   (function ws() {
@@ -935,7 +940,7 @@ document.querySelectorAll("nav.tabs button, [data-go]").forEach(b => b.addEventL
   scrollTo({top: 0});
 }));
 $("connChip").onclick = () => MODE === "server" ? document.querySelector('[data-tab="heater"]').click() : openConnect();
-$("changeConn").onclick = openConnect;
+$("changeConn").onclick = () => APP ? window.HeaterApp.pickHeater() : openConnect();
 $("cBle").onclick = () => startBle(false);
 $("cBleAll").onclick = () => startBle(true);
 $("cDemo").onclick = () => { if (MODE !== "demo") location.hash = "demo", location.reload(); else $("dlgConnect").close(); };
@@ -979,7 +984,9 @@ $("autoClk").onchange = e => store.set("autoClock", e.target.checked);
 $("autoSS").onchange = e => act(api("api/auto_start_stop", "POST", {on: e.target.checked}), "Saved");
 $("pause").onchange = e => act(api("api/pause", "POST", {paused: e.target.checked}), e.target.checked ? "Bluetooth released" : "Reconnecting…").then(load);
 $("pin").value = String(store.get("pin", 1234)).padStart(4, "0");
-$("pin").onchange = e => { const v = /^\d{1,4}$/.test(e.target.value.trim()) ? +e.target.value : 1234; store.set("pin", v); e.target.value = String(v).padStart(4, "0"); toast("Password saved"); };
+$("pin").onchange = e => { const v = /^\d{1,4}$/.test(e.target.value.trim()) ? +e.target.value : 1234; store.set("pin", v); e.target.value = String(v).padStart(4, "0");
+  if (APP) api("api/pin", "POST", {pin: v});
+  toast("Password saved"); };
 
 // change the heater's password: the app switches to the new PIN, the panel's Bluetooth-match item
 // learns it from the next command (official app does the same). Closing without SUC restores the old PIN.
@@ -1143,7 +1150,7 @@ document.addEventListener("visibilitychange", () => {
   }
   render(); openConnect();
 })();
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+if ("serviceWorker" in navigator && !APP) navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>
 </body>
 </html>

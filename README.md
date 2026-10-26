@@ -42,8 +42,16 @@ Tested on the colour "AirHeater Controller" panel. The official AirHeaterBLE app
 
 ### Limits
 - The phone only controls the heater while it's within Bluetooth range.
-- The app's weekly timers need the page to stay open. If you want them to run 24/7 with no phone, use the always-on "box" below (PC or a ~5 € ESP32).
+- In the browser, the weekly timers only fire while the page stays open and the screen is on (use **Night mode** with the phone on the charger).
+  The **Android app** below keeps the heater connected in the background, so timers work with the screen off.
 - The built-in timer and clock commands (10–13) come from the official app's code and are **not yet confirmed** on a real heater.
+
+### Android app (timers with the screen off)
+`android/` builds a small app (`DieselHeater.apk`, Android 8+) that shows the same page but keeps the Bluetooth
+link in a background service: a permanent notification shows the heater state and the next timer, timers fire
+with the phone locked, and it starts again after a reboot. On first start allow "Nearby devices" and notifications,
+say **Allow** to "ignore battery optimisation", then pick your heater (BYD-…). Some brands (Xiaomi, Huawei, Samsung)
+also need the app set to "No restrictions" in its battery settings. Build: `sh android/build.sh`.
 
 ## Feedback and forks
 Found a bug or have an idea? Open an [Issue](../../issues). The original repo is maintained by its author only and
