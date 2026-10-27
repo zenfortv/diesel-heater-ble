@@ -101,7 +101,7 @@ class Thermostat(
         cfg.put("below", d("below").coerceIn(0.5, 5.0)).put("above", d("above").coerceIn(0.5, 5.0))
             .put("min_on_min", d("min_on_min").coerceIn(10.0, 120.0)).put("min_off_min", d("min_off_min").coerceIn(5.0, 120.0))
             .put("offset", d("offset").coerceIn(-5.0, 5.0)).put("target", d("target").coerceIn(8.0, MAX_TARGET))
-            .put("min_volt", d("min_volt").coerceIn(0.0, 13.0)).put("phone_offset", d("phone_offset").coerceIn(-10.0, 5.0))
+            .put("min_volt", d("min_volt").coerceIn(0.0, 13.0)).put("phone_offset", d("phone_offset").coerceIn(-15.0, 5.0))
             .put("source", if (cfg.optString("source") == "phone") "phone" else "heater")
         save()
         tick()

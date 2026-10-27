@@ -181,6 +181,8 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
           <label class="sw"><input type="checkbox" id="autoSw"><i></i></label></div>
         <div class="seg" id="srcSeg"><button id="srcHeater">Heater sensor</button><button id="srcPhone">This phone</button></div>
         <p class="mute" id="srcTxt" style="margin:0"></p>
+        <div class="row" id="calRow" hidden><input type="number" id="calReal" step="0.5" inputmode="decimal" placeholder="real °C" style="width:6.5em">
+          <button id="calBtn">Match phone to thermometer</button></div>
         <p id="smHome"></p>
       </div>
     </div>
@@ -827,7 +829,9 @@ function render() {
   // connection chip
   const dot = $("connDot"), label = MODE === "demo" ? "Demo" : MODE === "ble" ? "Bluetooth" : "Box";
   dot.className = "dot " + (h.paused ? "warn" : conn ? "ok" : h.connecting ? "warn" : "bad");
-  $("connTxt").textContent = !MODE ? "Not connected" : h.paused ? `${label} · released` : h.connecting ? "Connecting…" : conn ? `${label} · connected` : `${label} · searching…`;
+  // last 4 characters of the heater's Bluetooth name (BYD-…9E28), to tell which heater it is
+  const tag = MODE !== "demo" && h.address ? " " + String(h.address).replace(/[^0-9A-Za-z]/g, "").slice(-4).toUpperCase() : "";
+  $("connTxt").textContent = !MODE ? "Not connected" : h.paused ? `${label}${tag} · released` : h.connecting ? `Connecting${tag}…` : conn ? `${label}${tag} · connected` : `${label}${tag} · searching…`;
   // hero
   const cls = !conn ? "s-dis" : step === 1 || step === 2 ? "s-ign" : step === 3 ? "s-run" : step === 4 || step === 6 ? "s-cool" : "s-off";
   $("hero").className = "card hero " + cls;
@@ -855,6 +859,7 @@ function render() {
   $("smHome").textContent = sm ? (conn ? sm.status || "…" : "Heater not connected") : "";
   $("srcHeater").classList.toggle("on", !byPhone); $("srcPhone").classList.toggle("on", byPhone);
   const ph = h.smart?.phone_temp, hr = h.smart?.heater_room;
+  $("calRow").hidden = !(h.smart && byPhone);
   $("srcTxt").textContent = h.smart ? `Room sensor · phone ${ph != null ? ph + "°" : "?"}${h.smart.phone_charging ? " (charging)" : ""} · heater ${hr != null ? hr + "°" : "no reading"}` : "";
   $("powerBtn").hidden = !!sm;
   $("modeTemp").parentElement.hidden = !!sm;
@@ -1189,7 +1194,7 @@ const SM = {smBelow: ["below", [0.5, 1, 1.5, 2, 3], v => `${v}°`], smAbove: ["a
   smMinOn: ["min_on_min", [10, 15, 20, 30, 45, 60], v => `${v} min`], smMinOff: ["min_off_min", [5, 10, 15, 20, 30], v => `${v} min`],
   smVolt: ["min_volt", [0, 11.5, 11.8, 12, 12.2, 12.4], v => v ? `${v.toFixed(1)} V` : "no limit"],
   smOffset: ["offset", [-3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3], v => v ? `${v > 0 ? "+" : ""}${v}°` : "none"],
-  smPhoneOff: ["phone_offset", [-8, -7, -6, -5, -4, -3.5, -3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 2], v => v ? `${v > 0 ? "+" : ""}${v}°` : "none"]};
+  smPhoneOff: ["phone_offset", Array.from({length: 37}, (_, i) => i / 2 - 15), v => v ? `${v > 0 ? "+" : ""}${v}°` : "none"]};  // -15..+3 by 0.5
 for (const [id, [, vals, f]] of Object.entries(SM)) $(id).innerHTML = vals.map(v => `<option value="${v}">${f(v)}</option>`).join("");
 function renderSmart(sm) {
   $("smartCard").hidden = !sm;
@@ -1219,6 +1224,14 @@ $("smSrc").onchange = sendSmart;
 for (const [id, v] of [["srcHeater", "heater"], ["srcPhone", "phone"]]) $(id).onclick = () => {
   $("smSrc").value = v;
   act(api("api/smart", "POST", {source: v}), v === "phone" ? "Room temperature from this phone" : "Room temperature from the heater").then(load);
+};
+// one-tap calibration: correction = real thermometer - raw phone reading
+$("calBtn").onclick = () => {
+  const real = parseFloat($("calReal").value), raw = S.smart?.phone_raw;
+  if (isNaN(real)) return toast("Type the temperature your thermometer shows", true);
+  if (raw == null) return toast("No phone reading yet", true);
+  const off = Math.min(3, Math.max(-15, Math.round((real - raw) * 2) / 2));
+  act(api("api/smart", "POST", {phone_offset: off}), `Phone correction ${off > 0 ? "+" : ""}${off}°`).then(() => { $("calReal").value = ""; load(); });
 };
 
 async function loadRaw() {

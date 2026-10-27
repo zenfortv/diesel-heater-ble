@@ -10,8 +10,8 @@ android {
         applicationId = "io.github.zenfortv.dieselheater"
         minSdk = 26
         targetSdk = 34
-        versionCode = 9
-        versionName = "1.7.1"
+        versionCode = 10
+        versionName = "1.7.2"
     }
     // the app shows the same page as GitHub Pages / the ESP32 box: DieselHeater/web
     sourceSets["main"].assets.srcDirs("../../web")
