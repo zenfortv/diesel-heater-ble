@@ -26,7 +26,19 @@ object Protocol {
     private fun s16(v: Int) = if (v > 32767) v - 65536 else v
     private fun clamp(v: Int, a: Int, b: Int) = v.coerceIn(a, b)
 
+    /** Some heaters send 0 V and 0 °C while they are off (sensors not read in standby; the official app gets
+     *  the same zeros). A frame with no supply voltage has no valid readings: drop them instead of showing
+     *  0 V / 0 °C, which the thermostat would otherwise take for a freezing room or a dead battery. */
     fun parse(raw: ByteArray): JSONObject? {
+        val s = parseRaw(raw) ?: return null
+        if (s.optDouble("supply_voltage", 0.0) < 1.0) {
+            s.remove("supply_voltage"); s.remove("cab_temperature"); s.remove("case_temperature")
+            s.put("sensors_blank", true)
+        }
+        return s
+    }
+
+    private fun parseRaw(raw: ByteArray): JSONObject? {
         val b = IntArray(raw.size) { raw[it].toInt() and 0xff }
         if (b.size < 17) return null
         val h = b[0] shl 8 or b[1]

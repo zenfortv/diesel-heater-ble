@@ -198,7 +198,18 @@ class HeaterLink(private val ctx: Context, private val onState: () -> Unit) {
         }
     }
 
+    // diagnostics: the last raw frames the heater sent (only when they change), shown in the Heater tab
+    private val raw = ArrayDeque<String>()
+    private var lastHex = ""
+    fun rawLog(): List<String> = synchronized(raw) { raw.toList() }
+
     private fun onData(v: ByteArray) {
+        val hex = v.joinToString(" ") { "%02X".format(it) }
+        if (hex != lastHex) synchronized(raw) {
+            lastHex = hex
+            raw.addLast(iso(java.time.LocalDateTime.now(), true).substring(11) + "  " + hex)
+            while (raw.size > 40) raw.removeFirst()
+        }
         val p = Protocol.parse(v) ?: return
         frame = p; updated = nowS()
         replyLatch?.countDown()

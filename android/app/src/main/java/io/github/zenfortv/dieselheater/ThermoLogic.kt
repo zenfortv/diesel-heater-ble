@@ -84,7 +84,9 @@ class ThermoLogic {
 
         fun d(act: Act, status: String, l: String? = log) = Decision(act, status, l, alert, setActive)
         if (!auto) return d(Act.NONE, "")
-        val room = r.roomRaw?.plus(s.offset) ?: return d(Act.NONE, "Waiting for the room temperature")
+        // never act on a missing reading (some heaters send none while off): no start on a guessed temperature
+        val room = r.roomRaw?.plus(s.offset) ?: return d(Act.NONE,
+            if (r.burnerOn) "Waiting for the room temperature" else "No room temperature from the heater while it's off: can't decide when to start")
         val lo = s.target - s.below
         val hi = s.target + s.above
 

@@ -171,7 +171,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
         </svg>
         <div class="dial-in">
           <div class="room"><span id="room">--</span><small>°C</small></div>
-          <div class="mute">in the room</div>
+          <div class="mute" id="roomLbl">in the room</div>
           <div class="state" id="stateTxt">—</div>
         </div>
       </div>
@@ -292,6 +292,11 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
     </div>
 
     <details class="card"><summary class="mute">History</summary><div class="list" id="hist"></div></details>
+    <details class="card" id="rawCard"><summary class="mute">Diagnostics: raw data from the heater</summary>
+      <p class="mute">Each line: time and the bytes the heater sent (only when they change). Useful to report a problem.</p>
+      <pre id="rawList" style="margin:0;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:50vh;overflow:auto">—</pre>
+      <div class="grid2"><button class="small" id="rawLoad">Refresh</button><button class="small" id="rawCopy">Copy</button></div>
+    </details>
   </section>
 </main>
 
@@ -421,7 +426,17 @@ function packet(pin, cmd, arg) {
   return Uint8Array.from(p);
 }
 
+// some heaters send 0 V and 0 °C while off (sensors not read in standby): no voltage = no valid readings
 function parseFrame(b) {
+  const s = parseFrameRaw(b);
+  if (s && !(s.supply_voltage >= 1)) {
+    delete s.supply_voltage; delete s.cab_temperature; delete s.case_temperature;
+    s.sensors_blank = true;
+  }
+  return s;
+}
+
+function parseFrameRaw(b) {
   if (b.length < 17) return null;
   const h = b[0] << 8 | b[1];
   if (h === 0xAA55 && (b.length === 18 || b.length === 20)) {
@@ -631,7 +646,14 @@ class BleDevice extends Device {
     this.s.connected = false; this.publish();
   }
   notify(dv) {
-    const p = parseFrame(new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength));
+    const bytes = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
+    const hex = [...bytes].map(x => x.toString(16).padStart(2, "0").toUpperCase()).join(" ");
+    if (hex !== this.lastHex) {  // diagnostics: raw frames when they change
+      this.lastHex = hex;
+      (this.raw ||= []).push(new Date().toTimeString().slice(0, 8) + "  " + hex);
+      if (this.raw.length > 40) this.raw.shift();
+    }
+    const p = parseFrame(bytes);
     if (!p) return;
     this.s = {...p, connected: true, address: this.s.address, updated: now()};
     this.got?.();
@@ -746,6 +768,7 @@ class LocalHub {
       case "off_timer": this.data.off_timer = body.minutes ? now() + body.minutes * 60 : null; this.save(); return this.snapshot();
       case "max_run": this.data.max_run_hours = Math.max(0, +body.hours || 0); this.save(); return this.snapshot();
       case "schedule": return this.snapshot();
+      case "raw": return {frames: d.raw || []};
     }
     const m = p.match(/^schedule\/(weekly|once)(?:\/(\w+))?$/);
     if (m && method === "POST") return this.add(m[1], body);
@@ -803,6 +826,7 @@ function render() {
   const sm = h.smart?.enabled ? h.smart : null;  // smart thermostat (Android app)
   const roomC = h.cab_temperature != null ? h.cab_temperature + (h.smart?.offset || 0) : null;
   $("room").textContent = roomC != null ? (Math.round(roomC * 10) / 10).toString() : "--";
+  $("roomLbl").textContent = h.sensors_blank && conn ? "heater sends no reading while off" : "in the room";
   $("stateTxt").textContent = !MODE ? "Not connected" : !conn ? (h.paused ? "Released" : "Searching for heater…") : (STEP[step] ?? (on ? "On" : "Off"));
   if (!editing && sm) { setMode = "temp"; setVal = sm.target; }
   else if (!editing) {
@@ -1169,6 +1193,16 @@ function sendSmart() {
   act(api("api/smart", "POST", b), "Settings saved").then(() => { document.activeElement?.blur(); load(); });
 }
 Object.keys(SM).forEach(id => { $(id).onchange = sendSmart; });
+
+async function loadRaw() {
+  try { const r = await api("api/raw"); $("rawList").textContent = (r.frames || []).slice().reverse().join("\n") || "No data yet"; }
+  catch { $("rawList").textContent = "Not available in this mode"; }
+}
+$("rawCard").addEventListener("toggle", e => { if (e.target.open) loadRaw(); });
+$("rawLoad").onclick = loadRaw;
+$("rawCopy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("rawList").textContent); toast("Copied"); } catch { toast("Copy failed: select the text by hand", true); }
+};
 
 let autoBusy = false;
 $("autoSw").onchange = async e => {

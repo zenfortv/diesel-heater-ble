@@ -164,6 +164,7 @@ class HeaterService : Service() {
             "pause" -> { h.setPaused(b.optBoolean("paused")); ok(true) }
             "pin" -> { h.pin = b.optInt("pin", 1234); onState(); ok(true) }
             "schedule" -> sched.snapshot()
+            "raw" -> JSONObject().put("frames", org.json.JSONArray(h.rawLog()))
             else -> {
                 val m = Regex("^schedule/(weekly|once)(?:/(\\w+))?$").find(p) ?: return null
                 val kind = m.groupValues[1]; val id = m.groupValues[2]

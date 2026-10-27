@@ -195,6 +195,14 @@ class ThermoLogicTest {
         assertTrue(l.step(s, true, reading(19.5, on = true), 10_020.0).status.contains("2.5° to go"))
     }
 
+    @Test fun noReadingWhileOffNeverStartsEvenWithoutBatteryLimit() {
+        val noLimit = s.copy(minVolt = 0.0)
+        val l = ThermoLogic().also { it.step(noLimit, true, reading(30.0), 0.0) }
+        val d = l.step(noLimit, true, HeaterReading(true, 2.0, false, 0, 0, null, null), 10_000.0, eager = true)
+        assertEquals(Act.NONE, d.act)
+        assertTrue(d.status.contains("can't decide"))
+    }
+
     @Test fun sensorCorrectionIsApplied() {
         val l = idle()
         // reads 21.5 but the user measured 2° less: 19.5 is below 20 -> start
