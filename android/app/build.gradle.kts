@@ -10,8 +10,8 @@ android {
         applicationId = "io.github.zenfortv.dieselheater"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
     // the app shows the same page as GitHub Pages / the ESP32 box: DieselHeater/web
     sourceSets["main"].assets.srcDirs("../../web")
@@ -26,4 +26,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+}
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
 }

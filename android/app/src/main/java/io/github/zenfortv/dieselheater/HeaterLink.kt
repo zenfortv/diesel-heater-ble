@@ -61,6 +61,7 @@ class HeaterLink(private val ctx: Context, private val onState: () -> Unit) {
     @Volatile private var replyLatch: CountDownLatch? = null
 
     val running get() = frame.optInt("running_state", 0) == 1
+    val updatedAt get() = updated
     fun frame(): JSONObject = frame
 
     fun state(): JSONObject {

@@ -37,6 +37,9 @@ class HeaterService : Service() {
             description = "Keeps the heater connected so timers work with the screen off"
             setShowBadge(false)
         })
+        nm.createNotificationChannel(NotificationChannel(ALERTS, "Safety alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "The heater couldn't be switched off, failed starts, connection lost while running"
+        })
         val n = note("Starting…")
         if (Build.VERSION.SDK_INT >= 29) startForeground(NOTE_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         else startForeground(NOTE_ID, n)
@@ -47,14 +50,15 @@ class HeaterService : Service() {
 
         heater = HeaterLink(this) { onState() }
         sched = Scheduler(File(filesDir, "schedules.json"), heater)
-        thermo = Thermostat(this, heater) { action, result -> sched.log(action, "thermostat", result) }
+        thermo = Thermostat(this, heater, { action, result -> sched.log(action, "thermostat", result) }, ::alert)
         sched.thermostat = thermo
+        sched.alert = ::alert
         web = WebServer(this, ::api) { stateMsg() }
         try { web.start(PORT) } catch (_: Exception) {}
         heater.start()
         ticker.scheduleWithFixedDelay({ try { sched.tick() } catch (_: Exception) {} }, 5, 5, SECONDS)
         ticker.scheduleWithFixedDelay({ try { thermo.tick() } catch (_: Exception) {} }, 8, 5, SECONDS)
-        ticker.scheduleWithFixedDelay({ updateNote(force = true) }, 30, 30, SECONDS)
+        ticker.scheduleWithFixedDelay({ updateNote(force = true); watchdog() }, 30, 30, SECONDS)
         instance = this
     }
 
@@ -71,6 +75,7 @@ class HeaterService : Service() {
     override fun onDestroy() {
         instance = null
         ticker.shutdownNow()
+        bus.shutdownNow()
         web.stop()
         heater.stop()
         if (wake.isHeld) wake.release()
@@ -79,10 +84,38 @@ class HeaterService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    // the heater keeps running on its own if the link drops: tell the user instead of failing silently
+    private var lostSince = 0.0
+    private fun watchdog() {
+        if (heater.connected || heater.paused || !heater.running) { lostSince = 0.0; return }
+        if (lostSince == 0.0) { lostSince = nowS(); return }
+        if (nowS() - lostSince > 120 && lostSince > 0) {
+            alert("Lost the heater while it was running. It keeps running on its own: check it.")
+            lostSince = -1.0  // once per loss
+        }
+    }
+
+    private val lastAlert = HashMap<String, Long>()
+    private fun alert(msg: String) {
+        val t = System.currentTimeMillis()
+        if (t - (lastAlert[msg] ?: 0L) < 10 * 60_000) return  // same alert at most every 10 min
+        lastAlert[msg] = t
+        sched.log("alert", "safety", msg)
+        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        getSystemService(NotificationManager::class.java).notify(100 + (msg.hashCode() and 0xff),
+            Notification.Builder(this, ALERTS).setSmallIcon(R.drawable.ic_flame).setContentTitle("Diesel heater")
+                .setContentText(msg).setStyle(Notification.BigTextStyle().bigText(msg))
+                .setContentIntent(open).setAutoCancel(true).build())
+    }
+
     private fun fullState(): JSONObject = heater.state().put("smart", if (::thermo.isInitialized) thermo.state() else Thermostat.DEFAULTS)
     private fun stateMsg() = JSONObject().put("type", "state").put("state", fullState()).toString()
 
-    private fun onState() {
+    // called from the Bluetooth threads: never block them (the thermostat/scheduler may hold their lock
+    // while waiting for exactly that thread to deliver the heater's reply)
+    private val bus = Executors.newSingleThreadExecutor()
+    private fun onState() = try { bus.execute { publishNow() } } catch (_: Exception) {}
+    private fun publishNow() {
         web.broadcast(stateMsg())
         updateNote(force = false)
     }
@@ -170,6 +203,7 @@ class HeaterService : Service() {
     companion object {
         const val PORT = 8770
         const val CHANNEL = "link"
+        const val ALERTS = "alerts"
         const val NOTE_ID = 1
         const val ACTION_QUIT = "quit"
         val STEP = mapOf(0 to "Off", 1 to "Self-test", 2 to "Igniting", 3 to "Heating", 4 to "Cooling down", 6 to "Ventilating")

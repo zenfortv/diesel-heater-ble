@@ -5,6 +5,13 @@ browser over Bluetooth. You don't need to install an app, run a server or use a 
 
 **Open the app: https://zenfortv.github.io/diesel-heater-ble/**
 
+> [!WARNING]
+> A diesel heater burns fuel inside your vehicle. This is an **unofficial, free, open-source** hobby project
+> provided **as is, without any warranty**. Remote control and automatic starts add risk: fire, carbon monoxide,
+> loss of the vehicle, injury or death. **You use it entirely at your own risk** and you must accept the
+> [terms of use and safety disclaimer](web/DISCLAIMER.md) before using it (the app and the page ask for it).
+> The authors take no responsibility for any damage. Read the [safety checklist](#safety-checklist) first.
+
 <p>
   <img src="docs/phone.png" alt="Phone view: room temperature, Turn on button, thermostat" width="260">
   &nbsp;
@@ -59,6 +66,29 @@ it, reading the room sensor (it keeps working with the burner off). Limits: star
 minimum run (20 min) and rest (10 min) to spare the glow plug and avoid coking, no start under 11.8 V, no restart
 after a fault, sensor correction. Timers drive it too: an "on" slot with a temperature sets the target and
 switches the thermostat on, "off" switches it off. Starting or stopping the heater on its panel is noticed.
+
+## Safety checklist
+Do this before trusting any automatic function, and again after every update or change to the heater:
+1. A **carbon-monoxide alarm** and a **smoke alarm** are fitted near where you sleep and tested. A fire extinguisher is at hand.
+2. The heater, exhaust, fuel line and wiring are installed per the manufacturer's manual and checked for leaks.
+3. With you present: **Turn on** and **Turn off** from the app work, every time.
+4. Set a one-time timer 3 minutes ahead, lock the phone, and watch it start. Same for a timer that switches it off.
+5. Smart thermostat: compare the room reading with a separate thermometer and set the **sensor correction**;
+   then watch one full cycle (start below the target, stop above it after the minimum run).
+6. Close the fuel tap (or unplug the pump) and start: after the start fails **twice**, the app must stop trying and
+   show an alert. Open the tap again and switch the thermostat back on.
+7. Walk out of Bluetooth range while it runs: after about 2 minutes you get an alert, and the heater **keeps running**
+   on its own. Know how to stop it from its panel or by cutting its power.
+
+Built-in protections of the smart thermostat (unit-tested in `android/app/src/test`, `sh android/build.sh testReleaseUnitTest`):
+minimum run and rest times, at most 3 starts per hour, no more automatic starts after 2 that didn't light (kept across
+restarts), no start under the battery limit or with a heater fault, stop above 35 °C room or on an impossible sensor
+reading, nothing done on missing or old data, alerts when the heater can't be switched off or is lost while running.
+These are conveniences, **not** safety devices.
+
+## License
+[MIT](LICENSE): free to use, copy and change, **without warranty**. Use is also subject to the
+[terms of use and safety disclaimer](web/DISCLAIMER.md).
 
 ## Feedback and forks
 Found a bug or have an idea? Open an [Issue](../../issues). The original repo is maintained by its author only and

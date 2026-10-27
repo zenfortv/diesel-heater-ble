@@ -308,6 +308,14 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
   <button class="small" id="cClose">Close</button>
 </div></dialog>
 
+<dialog id="dlgTerms"><div class="sheet">
+  <h3>Terms of use and safety</h3>
+  <div id="termsTxt" class="mute" style="max-height:52vh;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:4px 12px"></div>
+  <label class="row" style="align-items:flex-start"><input type="checkbox" id="termsChk" style="width:22px;min-height:22px;flex:none;margin-top:2px">
+    <span>I have read and accept these terms. I use this software entirely at my own risk.</span></label>
+  <div class="grid2"><button class="danger" id="termsNo">Decline</button><button class="primary" id="termsYes" disabled>Accept</button></div>
+</div></dialog>
+
 <dialog id="dlgPin"><div class="sheet">
   <h3>Change heater password</h3>
   <div id="pinStep1">
@@ -823,7 +831,7 @@ function render() {
   if (cs.drift_min_per_day != null) parts.push(`drifts ${cs.drift_min_per_day > 0 ? "+" : ""}${cs.drift_min_per_day} min/day`);
   if (cs.last_sync) parts.push(`synced ${new Date(cs.last_sync * 1000).toLocaleString([], {weekday: "short", hour: "2-digit", minute: "2-digit"})}`);
   $("clkTxt").textContent = parts.join(" · ") || "—";
-  $("autoRow").hidden = h.auto_start_stop == null;
+  $("autoRow").hidden = h.auto_start_stop == null || !!sm;  // the smart thermostat switches it off
   $("autoSS").checked = !!h.auto_start_stop;
   // connection card
   $("pause").checked = !!h.paused;
@@ -978,7 +986,7 @@ $("modeTemp").onclick = () => { if (setMode !== "temp") { setMode = "temp"; setV
 $("modeLevel").onclick = () => { if (setMode !== "level") { setMode = "level"; setVal = S.set_level || 5; render(); act(api("api/level", "POST", {level: setVal}), "Power level mode"); } };
 let debounce;
 function step(d) {
-  const [lo, hi] = setMode === "temp" ? [8, 36] : [1, 10];
+  const [lo, hi] = setMode === "temp" ? [8, S.smart?.enabled ? 30 : 36] : [1, 10];
   setVal = clamp((setVal ?? lo) + d, lo, hi);
   editing++; render();
   clearTimeout(debounce);
@@ -1183,8 +1191,47 @@ document.addEventListener("visibilitychange", () => {
   hub?.tick().catch(console.error);
 });
 
+/* ---------- terms: nothing connects until web/DISCLAIMER.md is accepted (the Android app asks natively) ---------- */
+const TERMS_V = 1;  // raise when DISCLAIMER.md changes
+function md(t) {  // just enough Markdown for DISCLAIMER.md: headings, paragraphs, "- " lists, **bold**
+  const out = [], inl = s => s.replace(/\*\*(.+?)\*\*/g, `<b style="color:var(--fg)">$1</b>`);
+  let para = [], list = [];
+  const flush = () => {
+    if (para.length) out.push(`<p style="margin:6px 0">${inl(para.join(" "))}</p>`);
+    if (list.length) out.push(`<ul style="padding-left:18px;margin:6px 0">${list.map(l => `<li>${inl(l)}</li>`).join("")}</ul>`);
+    para = []; list = [];
+  };
+  for (const raw of esc(t).split(/\r?\n/)) {
+    const l = raw.trim(), h = l.match(/^(#+) (.*)/);
+    if (!l || l === "---") flush();
+    else if (h) { flush(); const n = h[1].length === 1 ? 3 : 4; out.push(`<h${n} style="margin:14px 0 4px;color:var(--fg)">${h[2]}</h${n}>`); }
+    else if (l.startsWith("- ")) { if (para.length) flush(); list.push(l.slice(2)); }
+    else if (list.length && raw.startsWith("  ")) list[list.length - 1] += " " + l;  // wrapped list item
+    else { if (list.length) flush(); para.push(l); }
+  }
+  flush();
+  return out.join("");
+}
+function askTerms() {
+  return new Promise(async ok => {
+    const d = $("dlgTerms");
+    try { $("termsTxt").innerHTML = md(await (await fetch("DISCLAIMER.md")).text()); }
+    catch { $("termsTxt").innerHTML = `<p>Read the terms at <a href="https://github.com/zenfortv/diesel-heater-ble/blob/main/web/DISCLAIMER.md">github.com/zenfortv/diesel-heater-ble</a>.</p>`; }
+    d.addEventListener("cancel", e => e.preventDefault());
+    $("termsChk").onchange = e => { $("termsYes").disabled = !e.target.checked; };
+    $("termsYes").onclick = () => { store.set("terms", TERMS_V); d.close(); ok(); };
+    $("termsNo").onclick = () => {
+      d.close();
+      document.querySelector("main").innerHTML = `<div class="card"><h3>Terms declined</h3><p class="mute">This software can only be used by people who accept its terms. Nothing was sent to any heater. Reload the page to read them again.</p></div>`;
+      document.querySelector("nav.tabs").hidden = true;
+    };
+    d.showModal();
+  });
+}
+
 /* ---------- boot: served by the ESP32/PC box -> server mode, otherwise Bluetooth or demo ---------- */
 (async function boot() {
+  if (!APP && store.get("terms", 0) < TERMS_V) await askTerms();
   if (location.hash === "#demo") { history.replaceState(null, "", location.pathname); store.set("mode", "demo"); }
   if (location.protocol.startsWith("http") && !location.hostname.endsWith("github.io")) {
     try {

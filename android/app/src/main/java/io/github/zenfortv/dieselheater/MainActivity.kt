@@ -20,7 +20,12 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.view.ViewGroup.LayoutParams
 import android.widget.ArrayAdapter
+import android.widget.CheckBox
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
 import android.widget.Toast
 
 /** The app's screen: the same web page, loaded from the service on 127.0.0.1, plus permissions
@@ -47,8 +52,56 @@ class MainActivity : Activity() {
             }
         }
         setContentView(web)
+        if (prefs.getInt("terms", 0) >= TERMS_VERSION) proceed() else showTerms()
+    }
+
+    private fun proceed() {
         val missing = needed()
         if (missing.isEmpty()) ready() else requestPermissions(missing, 1)
+    }
+
+    // nothing connects to the heater until the user has accepted web/DISCLAIMER.md
+    private fun showTerms() {
+        stopService(Intent(this, HeaterService::class.java))
+        val text = assets.open("DISCLAIMER.md").bufferedReader().readText().lines()
+            .filter { it.trim() != "---" }
+            .joinToString("\n") { it.replace(Regex("^#+ "), "").replace("**", "") }
+        val dp = resources.displayMetrics.density
+        val pad = (20 * dp).toInt()
+        val scroll = ScrollView(this).apply {
+            addView(TextView(this@MainActivity).apply { this.text = text; textSize = 14f; setPadding(pad, pad / 2, pad, pad) })
+        }
+        val check = CheckBox(this).apply {
+            this.text = "I have read and accept these terms. I use this app entirely at my own risk."
+            setPadding(pad / 2, pad / 2, pad, pad / 2)
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(scroll, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.55).toInt()))
+            addView(check)
+        }
+        val dlg = AlertDialog.Builder(this)
+            .setTitle("Terms of use and safety")
+            .setView(box)
+            .setCancelable(false)
+            .setPositiveButton("Accept", null)
+            .setNegativeButton("Decline") { _, _ ->
+                prefs.edit().putBoolean("quit", true).apply()
+                toast("Terms declined: the app will not run.")
+                finishAndRemoveTask()
+            }
+            .create()
+        dlg.setOnShowListener {
+            val yes = dlg.getButton(AlertDialog.BUTTON_POSITIVE)
+            yes.isEnabled = false
+            check.setOnCheckedChangeListener { _, c -> yes.isEnabled = c }
+            yes.setOnClickListener {
+                prefs.edit().putInt("terms", TERMS_VERSION).apply()
+                dlg.dismiss()
+                proceed()
+            }
+        }
+        dlg.show()
     }
 
     private fun needed(): Array<String> {
@@ -129,6 +182,8 @@ class MainActivity : Activity() {
 
     @Deprecated("system back")
     override fun onBackPressed() { moveTaskToBack(true) }  // keep the page; the service runs anyway
+
+    companion object { const val TERMS_VERSION = 1 }  // raise when web/DISCLAIMER.md changes
 
     inner class Bridge {
         @JavascriptInterface fun pickHeater() = runOnUiThread { this@MainActivity.pickHeater() }

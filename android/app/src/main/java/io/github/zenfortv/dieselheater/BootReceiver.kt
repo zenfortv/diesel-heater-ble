@@ -13,6 +13,7 @@ class BootReceiver : BroadcastReceiver() {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
         val p = ctx.getSharedPreferences("heater", Context.MODE_PRIVATE)
         if (p.getString("address", "").isNullOrEmpty() || p.getBoolean("quit", false)) return
+        if (p.getInt("terms", 0) < MainActivity.TERMS_VERSION) return
         if (Build.VERSION.SDK_INT >= 31 && ctx.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) return
         ctx.startForegroundService(Intent(ctx, HeaterService::class.java))
     }

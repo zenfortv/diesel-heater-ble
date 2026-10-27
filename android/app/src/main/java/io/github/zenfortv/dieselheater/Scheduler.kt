@@ -17,6 +17,7 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
     private var last = nowS()
     private var onSince: Double? = null
     var thermostat: Thermostat? = null
+    var alert: ((String) -> Unit)? = null
     // thermostat messages arrive from its own thread: queued, folded into history under this lock
     private val inbox = java.util.concurrent.ConcurrentLinkedQueue<JSONObject>()
 
@@ -147,7 +148,8 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
     private fun exec(e: JSONObject): Boolean {
         val th = thermostat
         // smart thermostat on: timers switch the thermostat, it decides when the burner runs
-        if (th != null && th.enabled && (e.getString("action") == "off" || e.optString("mode") != "level")) {
+        // (power-level slots too: started directly, the thermostat would mistake them for a panel start)
+        if (th != null && th.enabled) {
             if (e.getString("action") == "on" && e.optString("mode") == "temp" && e.optDouble("value", 0.0) > 0) th.setTarget(e.getDouble("value"))
             return th.setActive(e.getString("action") == "on", e.getString("src"))
         }
@@ -191,7 +193,10 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
         }
         for (e in pend.toList()) {
             if (exec(e)) { record(e, "ok"); pend.remove(e); changed = true }
-            else if (t > e.getDouble("deadline")) { record(e, "FAILED (heater unreachable)"); pend.remove(e); changed = true }
+            else if (t > e.getDouble("deadline")) {
+                record(e, "FAILED (heater unreachable)"); pend.remove(e); changed = true
+                if (e.getString("action") == "off") alert?.invoke("Timer couldn't switch the heater off (${e.getString("src")}). Check it.")
+            }
         }
         if (changed) save()
     }
