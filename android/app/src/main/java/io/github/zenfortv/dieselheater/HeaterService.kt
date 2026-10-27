@@ -55,6 +55,7 @@ class HeaterService : Service() {
         sched = Scheduler(File(filesDir, "schedules.json"), heater)
         thermo = Thermostat(this, heater, { action, result -> sched.log(action, "thermostat", result) }, ::alert, ::event)
         sched.thermostat = thermo
+        thermo.phone.startWeather()
         sched.alert = ::alert
         sched.event = ::event
         web = WebServer(this, ::api) { stateMsg() }
@@ -96,6 +97,7 @@ class HeaterService : Service() {
     override fun onDestroy() {
         instance = null
         ticker.shutdownNow()
+        if (::thermo.isInitialized) thermo.phone.stop()
         bus.shutdownNow()
         web.stop()
         heater.stop()
@@ -184,6 +186,19 @@ class HeaterService : Service() {
             "pin" -> { h.pin = b.optInt("pin", 1234); onState(); ok(true) }
             "schedule" -> sched.snapshot()
             "raw" -> JSONObject().put("frames", org.json.JSONArray(h.rawLog()))
+            // readings from a real thermometer: POST {real} adds one, {delete: t} / {clear: true} remove
+            "calib" -> {
+                val ph = thermo.phone
+                when {
+                    method != "POST" -> ph.calib()
+                    b.has("real") -> ph.addReading(b.getDouble("real"), h.frame().optDouble("cab_temperature").takeUnless { it.isNaN() })
+                        .also { onState() }
+                    b.has("delete") -> { ph.removeReading(b.getDouble("delete")); onState(); ph.calib() }
+                    b.optBoolean("clear") -> { ph.clearReadings(); onState(); ph.calib() }
+                    else -> ph.calib()
+                }
+            }
+            "phone_log" -> JSONObject().put("log", thermo.phone.logJson())
             else -> {
                 val m = Regex("^schedule/(weekly|once)(?:/(\\w+))?$").find(p) ?: return null
                 val kind = m.groupValues[1]; val id = m.groupValues[2]

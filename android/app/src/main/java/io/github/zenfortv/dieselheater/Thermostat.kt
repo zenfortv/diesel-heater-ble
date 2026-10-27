@@ -1,9 +1,6 @@
 package io.github.zenfortv.dieselheater
 
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.os.BatteryManager
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -44,20 +41,19 @@ class Thermostat(
     private fun d(k: String) = cfg.optDouble(k, DEFAULTS.optDouble(k))
     private fun save() = prefs.edit().putString("thermo", cfg.toString()).apply()
     private val phoneSource get() = cfg.optString("source") == "phone"
-    // the correction of the sensor in use: the logic sees one room temperature
+    // the logic sees one room temperature: the phone's is already corrected (learned warmth + extra correction)
     private fun settings() = ThermoSettings(d("target"), d("below"), d("above"), d("min_on_min"), d("min_off_min"), d("min_volt"),
-        if (phoneSource) d("phone_offset") else d("offset"))
+        if (phoneSource) 0.0 else d("offset"))
 
-    /* the phone as room sensor: every phone reports its battery temperature (a true ambient sensor is rare).
-       Lying still it is close to the air around it; charging or in use it reads warmer. */
-    private val app = ctx.applicationContext
-    private fun phone(): Pair<Double?, Boolean> {
-        val i = app.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return null to false
-        val t = i.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
-        return (if (t == Int.MIN_VALUE || t == 0) null else t / 10.0) to (i.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0)
+    /* the phone as room sensor: its battery temperature, corrected for what warms it (PhoneSensor + SensorModel) */
+    val phone = PhoneSensor(ctx).also { p ->
+        p.trim = { d("phone_offset") }
+        p.place = { d("lat") to d("lon") }
+        // v1.7.x: phone_offset was the whole correction (often -10); now the model does that, it is only an extra trim
+        if (!prefs.getBoolean("model_v1", false)) { cfg.put("phone_offset", 0.0); save(); prefs.edit().putBoolean("model_v1", true).apply() }
     }
     // the heater sends no voltage while off: the last reading while it ran (under load, so on the low side)
-    // stands in for up to 6 h, so the battery limit still works between cycles
+    // stands in for up to 16 h (a night), so the battery limit still works between cycles
     private var lastVolt = prefs.getFloat("last_volt", 0f).toDouble()
     private var lastVoltAt = prefs.getLong("last_volt_at", 0L).toDouble()
     private fun volt(f: JSONObject): Pair<Double?, Boolean> {
@@ -69,7 +65,7 @@ class Thermostat(
             }
             return v to false
         }
-        return (if (lastVoltAt > 0 && nowS() - lastVoltAt < 6 * 3600) lastVolt else null) to true
+        return (if (lastVoltAt > 0 && nowS() - lastVoltAt < 16 * 3600) lastVolt else null) to true
     }
     private fun heaterRoom(): Double? = heater.frame().let { if (it.has("cab_temperature")) it.getDouble("cab_temperature") + d("offset") else null }
     private fun r1(v: Double) = Math.round(v * 10) / 10.0
@@ -84,12 +80,13 @@ class Thermostat(
 
     @Synchronized fun state(): JSONObject {
         val o = JSONObject(cfg.toString()).put("status", status)
-        val (pt, charging) = phone()
-        pt?.let { o.put("phone_temp", r1(it + d("phone_offset"))).put("phone_raw", r1(it)) }
-        o.put("phone_charging", charging)
+        val pr = phone.room()
+        pr?.let { o.put("phone_temp", r1(it)) }
+        phone.raw?.let { o.put("phone_raw", r1(it)) }
+        o.put("phone_charging", phone.charging).put("phone", phone.stateJson())
         heaterRoom()?.let { o.put("heater_room", r1(it)) }
         // "room" = the reading the thermostat uses
-        (if (phoneSource) pt?.plus(d("phone_offset")) else heaterRoom())?.let { o.put("room", r1(it)) }
+        (if (phoneSource) pr else heaterRoom())?.let { o.put("room", r1(it)) }
         logic.lockout?.let { o.put("lockout", it) }
         return o
     }
@@ -101,9 +98,11 @@ class Thermostat(
         cfg.put("below", d("below").coerceIn(0.5, 5.0)).put("above", d("above").coerceIn(0.5, 5.0))
             .put("min_on_min", d("min_on_min").coerceIn(10.0, 120.0)).put("min_off_min", d("min_off_min").coerceIn(5.0, 120.0))
             .put("offset", d("offset").coerceIn(-5.0, 5.0)).put("target", d("target").coerceIn(8.0, MAX_TARGET))
-            .put("min_volt", d("min_volt").coerceIn(0.0, 13.0)).put("phone_offset", d("phone_offset").coerceIn(-15.0, 5.0))
+            .put("min_volt", d("min_volt").coerceIn(0.0, 13.0)).put("phone_offset", d("phone_offset").coerceIn(-5.0, 5.0))
+            .put("lat", d("lat").coerceIn(-90.0, 90.0)).put("lon", d("lon").coerceIn(-180.0, 180.0))
             .put("source", if (cfg.optString("source") == "phone") "phone" else "heater")
         save()
+        if (b.has("lat") || b.has("lon")) phone.refreshWeather()
         tick()
     }
 
@@ -138,7 +137,8 @@ class Thermostat(
     @Synchronized fun tick(eager: Boolean = false) {
         val f = heater.frame()
         val burnerOn = f.optInt("running_state", 0) == 1
-        val (pt, charging) = phone()
+        phone.update(heaterRoom(), burnerOn)
+        val pt = phone.room()
         val r = HeaterReading(
             connected = heater.connected, ageS = nowS() - heater.updatedAt,
             burnerOn = burnerOn, step = f.optInt("running_step", 0), error = f.optInt("error_code", 0),
@@ -148,7 +148,7 @@ class Thermostat(
         )
         val dcs = logic.step(settings(), enabled, r, nowS(), eager)
         dcs.setActive?.let { enabled = it; cfg.put("enabled", it); save() }
-        status = dcs.status + if (enabled && phoneSource && charging) " · phone charging: reads warmer" else ""
+        status = dcs.status
         dcs.alert?.let(alert)
         val room = r.roomRaw?.let { ThermoLogic.fmt(it + settings().offset) + if (phoneSource) "° (phone)" else "°" } ?: "?"
         when (dcs.act) {
@@ -173,9 +173,10 @@ class Thermostat(
 
     companion object {
         const val MAX_TARGET = 30.0
-        private val KEYS = listOf("target", "below", "above", "min_on_min", "min_off_min", "min_volt", "offset", "source", "phone_offset")
+        private val KEYS = listOf("target", "below", "above", "min_on_min", "min_off_min", "min_volt", "offset", "source", "phone_offset", "lat", "lon")
         val DEFAULTS: JSONObject = JSONObject().put("enabled", false).put("target", 21.0)
             .put("below", 1.0).put("above", 1.0).put("min_on_min", 20.0).put("min_off_min", 10.0)
             .put("min_volt", 11.8).put("offset", 0.0).put("source", "heater").put("phone_offset", 0.0)
+            .put("lat", PhoneSensor.VENARIA.first).put("lon", PhoneSensor.VENARIA.second)
     }
 }

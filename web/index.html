@@ -172,6 +172,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
         <div class="dial-in">
           <div class="room"><span id="room">--</span><small>°C</small></div>
           <div class="mute" id="roomLbl">in the room</div>
+          <div class="mute" id="outLbl" hidden></div>
           <div class="state" id="stateTxt">—</div>
         </div>
       </div>
@@ -182,7 +183,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
         <div class="seg" id="srcSeg"><button id="srcHeater">Heater sensor</button><button id="srcPhone">This phone</button></div>
         <p class="mute" id="srcTxt" style="margin:0"></p>
         <div class="row" id="calRow" hidden><input type="number" id="calReal" step="0.5" inputmode="decimal" placeholder="real °C" style="width:6.5em">
-          <button id="calBtn">Match phone to thermometer</button></div>
+          <button id="calBtn">Save real temperature</button></div>
         <p id="smHome"></p>
       </div>
     </div>
@@ -268,6 +269,17 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
         <option value="heater">Heater sensor (some heaters send none while off)</option>
         <option value="phone">This phone (leave it in the van, still)</option></select></label>
       <p class="mute" id="smSensors"></p>
+      <div id="phBox" hidden>
+        <p class="mute" id="phNow"></p>
+        <p class="mute" id="phModel"></p>
+        <details id="calBox"><summary class="mute">Thermometer readings</summary><div class="list" id="calList"></div>
+          <button id="calClear" style="margin-top:8px">Delete all readings</button></details>
+        <details id="phLogBox"><summary class="mute">Last 48 h: room, phone, heater, outside</summary>
+          <svg id="phChart" viewBox="0 0 320 150" style="width:100%;height:auto;display:block;margin-top:8px"></svg>
+          <p class="mute" style="margin:4px 0 0"><b style="color:var(--hot)">━</b> room (phone, corrected) · <b style="color:var(--mute)">━</b> phone battery · <b style="color:var(--amber)">━</b> heater sensor · <b style="color:#4da3ff">━</b> outside · shaded = heater on</p></details>
+        <div class="grid2"><label class="f">Weather place: latitude<input type="number" id="smLat" step="0.0001" inputmode="decimal"></label>
+          <label class="f">longitude<input type="number" id="smLon" step="0.0001" inputmode="decimal"></label></div>
+      </div>
       <div class="grid2" id="smOpts">
         <label class="f">Start when below target by<select id="smBelow"></select></label>
         <label class="f">Stop when above target by<select id="smAbove"></select></label>
@@ -275,7 +287,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
         <label class="f">Rest at least<select id="smMinOff"></select></label>
         <label class="f">Don't start if battery under<select id="smVolt"></select></label>
         <label class="f" id="smOffsetL">Heater sensor correction<select id="smOffset"></select></label>
-        <label class="f" id="smPhoneOffL">Phone sensor correction<select id="smPhoneOff"></select></label>
+        <label class="f" id="smPhoneOffL">Extra phone correction<select id="smPhoneOff"></select></label>
       </div>
       <p class="mute" id="smTxt"></p>
     </div>
@@ -839,7 +851,7 @@ function render() {
   const byPhone = h.smart?.source === "phone";  // room temperature from the phone's sensor (Android app)
   const roomC = byPhone ? h.smart.room ?? null : h.cab_temperature != null ? h.cab_temperature + (h.smart?.offset || 0) : null;
   $("room").textContent = roomC != null ? (Math.round(roomC * 10) / 10).toString() : "--";
-  $("roomLbl").textContent = byPhone ? "in the room · phone" + (h.smart.phone_charging ? " (charging)" : "")
+  $("roomLbl").textContent = byPhone ? "in the room · phone" + (h.smart.phone?.readings ? "" : " (not calibrated yet)")
     : h.sensors_blank && conn ? "heater sends no reading while off" : "in the room";
   $("stateTxt").textContent = !MODE ? "Not connected" : !conn ? (h.paused ? "Released" : "Searching for heater…") : (STEP[step] ?? (on ? "On" : "Off"));
   if (!editing && sm) { setMode = "temp"; setVal = sm.target; }
@@ -860,7 +872,13 @@ function render() {
   $("srcHeater").classList.toggle("on", !byPhone); $("srcPhone").classList.toggle("on", byPhone);
   const ph = h.smart?.phone_temp, hr = h.smart?.heater_room;
   $("calRow").hidden = !(h.smart && byPhone);
-  $("srcTxt").textContent = h.smart ? `Room sensor · phone ${ph != null ? ph + "°" : "?"}${h.smart.phone_charging ? " (charging)" : ""} · heater ${hr != null ? hr + "°" : "no reading"}` : "";
+  const P = h.smart?.phone || {};
+  $("srcTxt").textContent = h.smart ? `Room sensor · phone ${ph != null ? ph + "°" : "?"}` +
+    (byPhone && P.raw != null ? ` (battery ${P.raw}°${warmList(P) ? ", warm from " + warmList(P) : ""})` : "") +
+    ` · heater ${hr != null ? hr + "°" : "no reading"}` : "";
+  const out = P.outdoor;
+  $("outLbl").hidden = !out;
+  if (out) $("outLbl").textContent = `outside ${out.temp}°${out.text ? " · " + out.text : ""}`;
   $("powerBtn").hidden = !!sm;
   $("modeTemp").parentElement.hidden = !!sm;
   lockAll(!!sm);
@@ -1194,10 +1212,13 @@ const SM = {smBelow: ["below", [0.5, 1, 1.5, 2, 3], v => `${v}°`], smAbove: ["a
   smMinOn: ["min_on_min", [10, 15, 20, 30, 45, 60], v => `${v} min`], smMinOff: ["min_off_min", [5, 10, 15, 20, 30], v => `${v} min`],
   smVolt: ["min_volt", [0, 11.5, 11.8, 12, 12.2, 12.4], v => v ? `${v.toFixed(1)} V` : "no limit"],
   smOffset: ["offset", [-3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3], v => v ? `${v > 0 ? "+" : ""}${v}°` : "none"],
-  smPhoneOff: ["phone_offset", Array.from({length: 37}, (_, i) => i / 2 - 15), v => v ? `${v > 0 ? "+" : ""}${v}°` : "none"]};  // -15..+3 by 0.5
+  smPhoneOff: ["phone_offset", Array.from({length: 21}, (_, i) => i / 2 - 5), v => v ? `${v > 0 ? "+" : ""}${v}°` : "none"]};  // -5..+5 by 0.5, on top of the learned one
 for (const [id, [, vals, f]] of Object.entries(SM)) $(id).innerHTML = vals.map(v => `<option value="${v}">${f(v)}</option>`).join("");
+let calLoaded = false;
 function renderSmart(sm) {
   $("smartCard").hidden = !sm;
+  renderPhone(sm);
+  if (sm?.source === "phone" && !calLoaded) { calLoaded = true; loadCalib(); }
   if (!sm || $("smartCard").contains(document.activeElement)) return;
   for (const [id, [k, vals]] of Object.entries(SM)) {
     const v = vals.reduce((a, b) => Math.abs(b - sm[k]) < Math.abs(a - sm[k]) ? b : a);
@@ -1207,9 +1228,8 @@ function renderSmart(sm) {
   $("smSrc").value = phone ? "phone" : "heater";
   $("smOffsetL").hidden = phone; $("smPhoneOffL").hidden = !phone;
   $("smSensors").textContent = `Now: phone ${sm.phone_temp != null ? sm.phone_temp + "°" : "?"}` +
-    (sm.phone_charging ? " (charging: reads warmer)" : "") +
     ` · heater ${sm.heater_room != null ? sm.heater_room + "°" : "no reading (off)"}.` +
-    (phone ? " Set the correction so the phone matches a real thermometer. While the heater runs, the two are compared: more than 8° apart stops it." : "");
+    (phone ? " The phone's battery reads warmer than the room when the screen is on, it charges or shares a hotspot: the app learns by how much from the real temperatures you type on Home. While the heater runs, the two sensors are compared: more than 8° apart stops it." : "");
   $("smTxt").textContent = `With the target at ${sm.target}°: starts below ${+(sm.target - sm.below).toFixed(1)}°, stops above ${+(sm.target + sm.above).toFixed(1)}°.` +
     (sm.enabled ? ` Now: ${sm.status}` : " Auto thermostat is off.");
 }
@@ -1225,14 +1245,90 @@ for (const [id, v] of [["srcHeater", "heater"], ["srcPhone", "phone"]]) $(id).on
   $("smSrc").value = v;
   act(api("api/smart", "POST", {source: v}), v === "phone" ? "Room temperature from this phone" : "Room temperature from the heater").then(load);
 };
-// one-tap calibration: correction = real thermometer - raw phone reading
-$("calBtn").onclick = () => {
-  const real = parseFloat($("calReal").value), raw = S.smart?.phone_raw;
-  if (isNaN(real)) return toast("Type the temperature your thermometer shows", true);
-  if (raw == null) return toast("No phone reading yet", true);
-  const off = Math.min(3, Math.max(-15, Math.round((real - raw) * 2) / 2));
-  act(api("api/smart", "POST", {phone_offset: off}), `Phone correction ${off > 0 ? "+" : ""}${off}°`).then(() => { $("calReal").value = ""; load(); });
+// a real-thermometer reading: the app stores it with what the phone said and what was warming it, and learns from all of them
+$("calBtn").onclick = async () => {
+  const real = parseFloat(String($("calReal").value).replace(",", "."));
+  if (isNaN(real) || real < -30 || real > 50) return toast("Type the temperature your thermometer shows", true);
+  try {
+    const r = await api("api/calib", "POST", {real});
+    if (r.ok === false) return toast(r.error || "Not saved", true);
+    $("calReal").value = "";
+    toast(`Saved: ${(r.samples || []).length} readings` + (r.mean_error != null ? ` · avg error ${r.mean_error}°` : ""));
+    load(); loadCalib();
+  } catch (e) { toast("Not saved: " + e.message, true); }
 };
+function warmList(P) {
+  const w = P.warmth || {}, on = [];
+  for (const k of ["screen", "charging", "hotspot", "wifi"]) if ((w[k] || 0) > 0.3) on.push(k);
+  return on.join(", ");
+}
+const WNAME = {base: "always", screen: "screen on", charging: "charging", wifi: "wifi", hotspot: "hotspot", load: "per amp drawn"};
+function renderPhone(sm) {
+  const P = sm?.phone, phone = sm?.source === "phone";
+  $("phBox").hidden = !P || !phone;
+  if (!P || !phone) return;
+  const st = [P.screen ? "screen on" : "screen off", P.charging ? "charging" : "not charging", P.wifi ? "wifi" : "no wifi",
+    P.hotspot == null ? "hotspot ?" : P.hotspot ? "hotspot on" : "no hotspot", P.load_a != null ? `${P.load_a} A` : ""].filter(Boolean).join(" · ");
+  $("phNow").textContent = `Phone now: battery ${P.raw ?? "?"}° · ${st}. Estimated ${P.warm_by ?? "?"}° warmer than the room → room ${P.room ?? "?"}°.` +
+    (P.outdoor ? ` Outside ${P.outdoor.temp}° ${P.outdoor.text || ""} (${P.outdoor.src}, ${P.outdoor.time?.slice(11) || ""}).` : "");
+  if (document.activeElement !== $("smLat")) $("smLat").value = sm.lat;
+  if (document.activeElement !== $("smLon")) $("smLon").value = sm.lon;
+}
+let calTimer = null;
+async function loadCalib() {
+  let c; try { c = await api("api/calib"); } catch { return; }
+  if (!c || !c.samples) return;
+  const w = c.weights || {};
+  $("phModel").textContent = `Learned from ${c.samples.length} reading${c.samples.length === 1 ? "" : "s"}` +
+    (c.mean_error != null ? ` (avg error ${c.mean_error}°)` : " (starting guess)") + ": the phone reads warmer by " +
+    Object.entries(WNAME).filter(([k]) => w[k] != null && (k !== "load" || Math.abs(w[k]) >= 0.1)).map(([k, n]) => `${w[k] > 0 ? "+" : ""}${w[k]}° ${n}`).join(", ") +
+    ". Type the real temperature on Home now and then, in different situations (cold phone at night, charging, hotspot): it gets better each time.";
+  const flags = x => Object.entries({screen: "screen", charging: "chg", hotspot: "hotspot", wifi: "wifi"}).filter(([k]) => (x.w?.[k] || 0) > 0.3).map(([, n]) => n).join(" ") || "idle";
+  $("calList").innerHTML = c.samples.map(x => `<div class="item"><div><div class="t">${x.real}° real · phone ${x.raw}° → ${x.est}°</div>
+    <div class="s">${esc(new Date(x.t * 1000).toLocaleString([], {day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"}))} · ${esc(flags(x))}${x.out != null ? ` · outside ${x.out}°` : ""}${x.heater != null ? ` · heater ${x.heater}°` : ""}</div></div>
+    <button data-cdel="${x.t}" aria-label="Delete">✕</button></div>`).join("") || `<p class="empty">No readings yet</p>`;
+}
+$("calList").onclick = async e => {
+  const t = e.target.closest("[data-cdel]")?.dataset.cdel; if (!t) return;
+  await act(api("api/calib", "POST", {delete: +t}), "Reading deleted"); loadCalib(); load();
+};
+$("calClear").onclick = async () => {
+  const b = $("calClear");
+  if (b.dataset.sure !== "1") {
+    b.dataset.sure = "1"; b.textContent = "Tap again to delete all";
+    clearTimeout(calTimer); calTimer = setTimeout(() => { b.dataset.sure = ""; b.textContent = "Delete all readings"; }, 4000);
+    return;
+  }
+  b.dataset.sure = ""; b.textContent = "Delete all readings";
+  await act(api("api/calib", "POST", {clear: true}), "All readings deleted"); loadCalib(); load();
+};
+for (const id of ["smLat", "smLon"]) $(id).onchange = () => {
+  const lat = parseFloat($("smLat").value), lon = parseFloat($("smLon").value);
+  if (isNaN(lat) || isNaN(lon)) return;
+  act(api("api/smart", "POST", {lat, lon}), "Weather place saved").then(load);
+};
+async function loadPhoneLog() {
+  let L; try { L = (await api("api/phone_log")).log || []; } catch { return; }
+  const svg = $("phChart");
+  if (L.length < 2) { svg.innerHTML = `<text x="160" y="75" text-anchor="middle" fill="currentColor" font-size="11" opacity=".6">Not enough data yet (one point every 5 min)</text>`; return; }
+  const t0 = L[0].t, t1 = L[L.length - 1].t, vals = L.flatMap(r => [r.room, r.raw, r.heater, r.out]).filter(v => v != null);
+  const lo = Math.floor(Math.min(...vals) / 5) * 5, hi = Math.max(lo + 5, Math.ceil(Math.max(...vals) / 5) * 5);
+  const X = t => 28 + (t - t0) / Math.max(1, t1 - t0) * 288, Y = v => 138 - (v - lo) / (hi - lo) * 128;
+  let g = "";
+  for (let v = lo; v <= hi; v += 5) g += `<line x1="28" x2="316" y1="${Y(v)}" y2="${Y(v)}" stroke="currentColor" opacity=".12"/><text x="24" y="${Y(v) + 3}" text-anchor="end" font-size="9" fill="currentColor" opacity=".6">${v}°</text>`;
+  for (let i = 0; i < L.length - 1; i++) if (L[i].on) g += `<rect x="${X(L[i].t)}" y="10" width="${Math.max(0.5, X(L[i + 1].t) - X(L[i].t))}" height="128" fill="var(--hot)" opacity=".12"/>`;
+  const line = (k, c, w) => {
+    let d = "", pen = false;
+    for (const r of L) { if (r[k] == null) { pen = false; continue; } d += `${pen ? "L" : "M"}${X(r.t).toFixed(1)},${Y(r[k]).toFixed(1)}`; pen = true; }
+    return d ? `<path d="${d}" fill="none" stroke="${c}" stroke-width="${w}" stroke-linejoin="round"/>` : "";
+  };
+  const hh = t => new Date(t * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+  g += line("out", "#4da3ff", 1.5) + line("heater", "var(--amber)", 1.5) + line("raw", "var(--mute)", 1.5) + line("room", "var(--hot)", 2.2);
+  g += `<text x="28" y="149" font-size="9" fill="currentColor" opacity=".6">${hh(t0)}</text><text x="316" y="149" text-anchor="end" font-size="9" fill="currentColor" opacity=".6">${hh(t1)}</text>`;
+  svg.innerHTML = g;
+}
+$("phLogBox").addEventListener("toggle", e => { if (e.target.open) loadPhoneLog(); });
+$("calBox").addEventListener("toggle", e => { if (e.target.open) loadCalib(); });
 
 async function loadRaw() {
   try { const r = await api("api/raw"); $("rawList").textContent = (r.frames || []).slice().reverse().join("\n") || "No data yet"; }
