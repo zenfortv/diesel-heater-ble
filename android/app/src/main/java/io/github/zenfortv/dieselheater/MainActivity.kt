@@ -183,7 +183,7 @@ class MainActivity : Activity() {
     @Deprecated("system back")
     override fun onBackPressed() { moveTaskToBack(true) }  // keep the page; the service runs anyway
 
-    companion object { const val TERMS_VERSION = 1 }  // raise when web/DISCLAIMER.md changes
+    companion object { const val TERMS_VERSION = 2 }  // raise when web/DISCLAIMER.md changes
 
     inner class Bridge {
         @JavascriptInterface fun pickHeater() = runOnUiThread { this@MainActivity.pickHeater() }

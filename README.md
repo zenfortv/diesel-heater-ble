@@ -3,14 +3,15 @@
 Turn your Chinese diesel heater (Vevor, BYD and other heaters that use the **AirHeaterBLE** app) on and off from your phone's
 browser over Bluetooth. You don't need to install an app, run a server or use a cloud account: open the page, connect, and tap **Turn on**.
 
-**Open the app: https://zenfortv.github.io/diesel-heater-ble/**
+**Open the app: https://zenfortv.github.io/diesel-heater-ble/** · **Android app (timers + smart thermostat with the
+screen off): [download the APK from Releases](../../releases/latest)**
 
 > [!WARNING]
 > A diesel heater burns fuel inside your vehicle. This is an **unofficial, free, open-source** hobby project
 > provided **as is, without any warranty**. Remote control and automatic starts add risk: fire, carbon monoxide,
 > loss of the vehicle, injury or death. **You use it entirely at your own risk** and you must accept the
 > [terms of use and safety disclaimer](web/DISCLAIMER.md) before using it (the app and the page ask for it).
-> The authors take no responsibility for any damage. Read the [safety checklist](#safety-checklist) first.
+> The authors, contributors and **the publisher** (GitHub "zenfortv") take no responsibility for any damage. Read the [safety checklist](#safety-checklist) first.
 
 <p>
   <img src="docs/phone.png" alt="Phone view: room temperature, Turn on button, thermostat" width="260">

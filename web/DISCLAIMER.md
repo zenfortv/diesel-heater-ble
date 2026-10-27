@@ -1,6 +1,6 @@
 # Terms of use and safety disclaimer
 
-Version 1 · read all of it before using this software.
+Version 2 · read all of it before using this software.
 
 ## 1. What this software is
 Diesel Heater BLE (the web page, the Android app, the PC server and any firmware in this project, together "the
@@ -54,6 +54,12 @@ contents, carbon-monoxide poisoning, personal injury, death, damage to the heate
 fuel use, fines, and any direct, indirect, incidental or consequential damage, even if advised of the possibility.
 Where the law does not allow a complete exclusion, liability is limited to the minimum the law permits.
 
+"Authors, contributors and distributors" explicitly includes **the publisher** of this project: the person who
+wrote it and publishes it on GitHub (account "zenfortv"), on GitHub Pages, as an Android APK or in any other place,
+and anyone who shares a copy. Publishing the Software, answering questions about it or helping someone set it up
+does not make the publisher responsible for any heater, vehicle, installation or use. The Software is a free
+experiment shared for others to study and adapt; it is not a product, service or advice, and nobody is paid for it.
+
 ## 7. Acceptance
 You may use the Software only if you have read, understood and accepted these terms. **If you do not accept them,
 do not install or use the Software.** Accepting in the app or on the page is recorded only on your device. If
@@ -63,7 +69,7 @@ these terms change, you will be asked to accept the new version.
 
 # Condizioni d'uso e avvertenze di sicurezza (italiano)
 
-Versione 1 · leggi tutto prima di usare questo software. In caso di dubbio prevale il testo inglese sopra.
+Versione 2 · leggi tutto prima di usare questo software. In caso di dubbio prevale il testo inglese sopra.
 
 **1. Cos'è.** Diesel Heater BLE (pagina web, app Android, server PC ed eventuale firmware, insieme "il Software")
 è un progetto hobbistico gratuito e open source, **non ufficiale**: non è realizzato, approvato o supportato dai
@@ -93,7 +99,10 @@ di fidarti; smettere subito di usare il Software se qualcosa non va come previst
 distributori non rispondono di alcun danno** derivante dall'uso, dal mancato funzionamento o dall'uso improprio del
 Software, compresi incendio, perdita o distruzione del veicolo e del contenuto, intossicazione, lesioni, morte,
 danni a stufa, batteria o impianto. Dove la legge non consente l'esclusione totale, la responsabilità è limitata al
-minimo consentito.
+minimo consentito. Tra questi rientra espressamente **chi pubblica** il progetto (l'autore che lo pubblica su GitHub
+con l'account "zenfortv", su GitHub Pages, come APK Android o altrove) e chiunque ne condivida una copia. Pubblicare
+il Software, rispondere a domande o aiutare qualcuno a configurarlo non rende chi pubblica responsabile di stufe,
+veicoli, installazioni o usi. Il Software è un esperimento gratuito, non un prodotto, un servizio o una consulenza.
 
 **7. Accettazione.** Puoi usare il Software solo se hai letto, capito e accettato queste condizioni. **Se non le
 accetti, non installarlo e non usarlo.**

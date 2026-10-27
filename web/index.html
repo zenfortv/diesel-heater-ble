@@ -1192,7 +1192,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 /* ---------- terms: nothing connects until web/DISCLAIMER.md is accepted (the Android app asks natively) ---------- */
-const TERMS_V = 1;  // raise when DISCLAIMER.md changes
+const TERMS_V = 2;  // raise when DISCLAIMER.md changes
 function md(t) {  // just enough Markdown for DISCLAIMER.md: headings, paragraphs, "- " lists, **bold**
   const out = [], inl = s => s.replace(/\*\*(.+?)\*\*/g, `<b style="color:var(--fg)">$1</b>`);
   let para = [], list = [];
