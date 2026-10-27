@@ -138,7 +138,9 @@ class HeaterService : Service() {
                 .setContentIntent(open).setAutoCancel(true).build())
     }
 
+    private val appVersion by lazy { try { packageManager.getPackageInfo(packageName, 0).versionName ?: "" } catch (_: Exception) { "" } }
     private fun fullState(): JSONObject = heater.state().put("smart", if (::thermo.isInitialized) thermo.state() else Thermostat.DEFAULTS)
+        .put("app_version", appVersion)
     private fun stateMsg() = JSONObject().put("type", "state").put("state", fullState()).toString()
 
     // called from the Bluetooth threads: never block them (the thermostat/scheduler may hold their lock

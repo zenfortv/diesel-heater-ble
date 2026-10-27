@@ -179,6 +179,8 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       <div class="autoBox" id="autoHome" hidden>
         <div class="row between"><span><b>Auto thermostat</b><br><span class="mute">switches the heater on and off by itself to keep the target</span></span>
           <label class="sw"><input type="checkbox" id="autoSw"><i></i></label></div>
+        <div class="seg" id="srcSeg"><button id="srcHeater">Heater sensor</button><button id="srcPhone">This phone</button></div>
+        <p class="mute" id="srcTxt" style="margin:0"></p>
         <p id="smHome"></p>
       </div>
     </div>
@@ -851,6 +853,9 @@ function render() {
   if (!autoBusy) $("autoSw").checked = !!sm;
   $("smHome").hidden = !sm;
   $("smHome").textContent = sm ? (conn ? sm.status || "…" : "Heater not connected") : "";
+  $("srcHeater").classList.toggle("on", !byPhone); $("srcPhone").classList.toggle("on", byPhone);
+  const ph = h.smart?.phone_temp, hr = h.smart?.heater_room;
+  $("srcTxt").textContent = h.smart ? `Room sensor · phone ${ph != null ? ph + "°" : "?"}${h.smart.phone_charging ? " (charging)" : ""} · heater ${hr != null ? hr + "°" : "no reading"}` : "";
   $("powerBtn").hidden = !!sm;
   $("modeTemp").parentElement.hidden = !!sm;
   lockAll(!!sm);
@@ -890,7 +895,7 @@ function render() {
   $("pause").checked = !!h.paused;
   $("connInfo").textContent = [
     MODE === "server" ? (APP ? "Android app: stays connected in the background, timers run with the screen off." : "ESP32 box / PC server: timers run 24/7.") : MODE === "ble" ? "Direct Bluetooth from this device." : MODE === "demo" ? "Demo: a simulated heater, nothing is sent." : "Not connected.",
-    h.address && MODE !== "demo" ? `Heater ${h.address}` : "", h.protocol ? `protocol ${h.protocol}` : "", h.last_error ? `last error: ${h.last_error}` : "",
+    h.address && MODE !== "demo" ? `Heater ${h.address}` : "", h.protocol ? `protocol ${h.protocol}` : "", h.app_version ? `app v${h.app_version}` : "", h.last_error ? `last error: ${h.last_error}` : "",
   ].filter(Boolean).join(" · ");
 }
 
@@ -1210,6 +1215,11 @@ function sendSmart() {
 }
 Object.keys(SM).forEach(id => { $(id).onchange = sendSmart; });
 $("smSrc").onchange = sendSmart;
+// quick source switch on Home: same setting as Heater tab > Auto thermostat settings
+for (const [id, v] of [["srcHeater", "heater"], ["srcPhone", "phone"]]) $(id).onclick = () => {
+  $("smSrc").value = v;
+  act(api("api/smart", "POST", {source: v}), v === "phone" ? "Room temperature from this phone" : "Room temperature from the heater").then(load);
+};
 
 async function loadRaw() {
   try { const r = await api("api/raw"); $("rawList").textContent = (r.frames || []).slice().reverse().join("\n") || "No data yet"; }
