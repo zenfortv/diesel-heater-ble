@@ -62,7 +62,7 @@ class HeaterService : Service() {
         heater.start()
         ticker.scheduleWithFixedDelay({ try { sched.tick() } catch (_: Exception) {} }, 5, 5, SECONDS)
         ticker.scheduleWithFixedDelay({ try { thermo.tick() } catch (_: Exception) {} }, 8, 5, SECONDS)
-        ticker.scheduleWithFixedDelay({ updateNote(force = true); watchdog() }, 30, 30, SECONDS)
+        ticker.scheduleWithFixedDelay({ releaseCheck(); updateNote(force = true); watchdog() }, 30, 30, SECONDS)
         instance = this
     }
 
@@ -73,7 +73,24 @@ class HeaterService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        if (intent?.action == ACTION_RELEASE) release(RELEASE_S)
+        if (intent?.action == ACTION_RECONNECT) { releaseUntil = 0.0; heater.setPaused(false) }
         return START_STICKY
+    }
+
+    // the heater takes one Bluetooth connection: free it for the AirHeaterBLE app for a while, then come back
+    @Volatile private var releaseUntil = 0.0
+    private fun release(seconds: Double) {
+        releaseUntil = nowS() + seconds
+        heater.setPaused(true)
+        updateNote(force = true)
+    }
+    private fun releaseCheck() {
+        if (releaseUntil > 0 && nowS() > releaseUntil) {
+            releaseUntil = 0.0
+            heater.setPaused(false)
+            event("Reconnecting to the heater (Bluetooth release ended)")
+        }
     }
 
     override fun onDestroy() {
@@ -161,7 +178,7 @@ class HeaterService : Service() {
             "smart" -> { thermo.configure(b); onState(); thermo.state() }
             "sync_clock" -> ok(h.syncClock(true))
             "set_clock" -> ok(h.setClock(b.getString("time")))
-            "pause" -> { h.setPaused(b.optBoolean("paused")); ok(true) }
+            "pause" -> { releaseUntil = 0.0; h.setPaused(b.optBoolean("paused")); ok(true) }  // from the page: until switched back
             "pin" -> { h.pin = b.optInt("pin", 1234); onState(); ok(true) }
             "schedule" -> sched.snapshot()
             "raw" -> JSONObject().put("frames", org.json.JSONArray(h.rawLog()))
@@ -181,7 +198,12 @@ class HeaterService : Service() {
     /* ongoing notification: title = what the heater does, text = what happens next and when */
     private fun summary(): Pair<String, String> {
         val s = fullState()
-        if (s.optBoolean("paused")) return "Bluetooth released" to "Another app can connect to the heater"
+        if (s.optBoolean("paused")) {
+            val left = ((releaseUntil - nowS()) / 60).toInt() + 1
+            val auto = if (thermo.enabled) " · Auto thermostat paused" else ""
+            return "Bluetooth released: AirHeaterBLE can connect" to
+                (if (releaseUntil > 0) "Reconnects in $left min$auto" else "Reconnect from the app$auto")
+        }
         if (!s.optBoolean("connected")) return (if (s.optBoolean("connecting")) "Connecting…" else "Searching for heater…") to s.optString("last_error")
         val sm = s.optJSONObject("smart")
         val room = sm?.takeIf { it.has("room") }?.let { " · room ${ThermoLogic.fmt(it.getDouble("room"))}°" } ?: ""
@@ -213,6 +235,9 @@ class HeaterService : Service() {
     private fun note(text: String): Notification {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val quit = PendingIntent.getService(this, 1, Intent(this, HeaterService::class.java).setAction(ACTION_QUIT), PendingIntent.FLAG_IMMUTABLE)
+        val paused = ::heater.isInitialized && heater.paused
+        val bt = PendingIntent.getService(this, 2, Intent(this, HeaterService::class.java)
+            .setAction(if (paused) ACTION_RECONNECT else ACTION_RELEASE), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val lines = text.split("\n")
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_flame)
@@ -221,6 +246,7 @@ class HeaterService : Service() {
             .setContentIntent(open)
             .setOngoing(true)
             .setShowWhen(false)
+            .addAction(Notification.Action.Builder(null, if (paused) "Reconnect now" else "Release 10 min", bt).build())
             .addAction(Notification.Action.Builder(null, "Quit", quit).build())
             .build()
     }
@@ -232,6 +258,9 @@ class HeaterService : Service() {
         const val EVENTS = "events"
         const val NOTE_ID = 1
         const val ACTION_QUIT = "quit"
+        const val ACTION_RELEASE = "release"
+        const val ACTION_RECONNECT = "reconnect"
+        const val RELEASE_S = 600.0
         val STEP = mapOf(0 to "Off", 1 to "Self-test", 2 to "Igniting", 3 to "Heating", 4 to "Cooling down", 6 to "Ventilating")
         @Volatile var instance: HeaterService? = null
 
