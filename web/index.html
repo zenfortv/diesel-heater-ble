@@ -170,6 +170,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
         </div>
       </div>
       <button class="power primary" id="powerBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3v8M6.3 6.8a8 8 0 1 0 11.4 0"/></svg><span id="powerTxt">Turn on</span></button>
+      <p class="mute" id="smHome" hidden></p>
     </div>
 
     <div class="card errcard" id="errCard" hidden><b id="errTitle"></b><p id="errTip" class="mute"></p></div>
@@ -239,6 +240,21 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
         <span class="row"><input type="time" id="clkManual" style="width:auto"><button id="clkSet">Set</button></span></div>
       <div class="row between" id="autoClkRow" hidden><span>Auto-correct when connected<br><span class="mute">fixes drift whenever the page is open</span></span>
         <label class="sw"><input type="checkbox" id="autoClk"><i></i></label></div>
+    </div>
+
+    <div class="card" id="smartCard" hidden>
+      <h2>Smart thermostat</h2>
+      <div class="row between"><span>Switch the heater on and off<br><span class="mute">holds the target by stopping the burner, not just turning it down</span></span>
+        <label class="sw"><input type="checkbox" id="smEn"><i></i></label></div>
+      <div class="grid2" id="smOpts">
+        <label class="f">Start when below target by<select id="smBelow"></select></label>
+        <label class="f">Stop when above target by<select id="smAbove"></select></label>
+        <label class="f">Run at least<select id="smMinOn"></select></label>
+        <label class="f">Rest at least<select id="smMinOff"></select></label>
+        <label class="f">Don't start if battery under<select id="smVolt"></select></label>
+        <label class="f">Room sensor correction<select id="smOffset"></select></label>
+      </div>
+      <p class="mute" id="smTxt"></p>
     </div>
 
     <div class="card">
@@ -761,23 +777,30 @@ function render() {
   // hero
   const cls = !conn ? "s-dis" : step === 1 || step === 2 ? "s-ign" : step === 3 ? "s-run" : step === 4 || step === 6 ? "s-cool" : "s-off";
   $("hero").className = "card hero " + cls;
-  $("room").textContent = h.cab_temperature != null ? (Math.round(h.cab_temperature * 10) / 10).toString() : "--";
+  const sm = h.smart?.enabled ? h.smart : null;  // smart thermostat (Android app)
+  const roomC = h.cab_temperature != null ? h.cab_temperature + (h.smart?.offset || 0) : null;
+  $("room").textContent = roomC != null ? (Math.round(roomC * 10) / 10).toString() : "--";
   $("stateTxt").textContent = !MODE ? "Not connected" : !conn ? (h.paused ? "Released" : "Searching for heater…") : (STEP[step] ?? (on ? "On" : "Off"));
-  if (!editing) {
+  if (!editing && sm) { setMode = "temp"; setVal = sm.target; }
+  else if (!editing) {
     if (h.running_mode === 2) { setMode = "temp"; setVal = h.set_temp; }
     else if (h.running_mode === 1) { setMode = "level"; setVal = h.set_level; }
   }
   const frac = setVal == null ? 0 : setMode === "temp" ? (setVal - 8) / 28 : setVal / 10;
   $("arc").setAttribute("stroke-dasharray", `${(clamp(frac, 0, 1) * 100).toFixed(1)} 100`);
-  const running = on || step === 1 || step === 2 || step === 3;
-  $("powerTxt").textContent = running ? "Turn off" : "Turn on";
+  const running = sm ? !!sm.active : on || step === 1 || step === 2 || step === 3;
+  $("powerTxt").textContent = sm ? (running ? "Thermostat off" : "Thermostat on") : running ? "Turn off" : "Turn on";
+  $("smHome").hidden = !sm || !conn;
+  $("smHome").textContent = sm ? (sm.active ? `Holding ${sm.target}° · ${sm.status}` : "Smart thermostat ready: tap to hold the target") : "";
+  $("modeTemp").parentElement.hidden = !!sm;
   $("powerBtn").className = "power " + (running ? "danger" : "primary");
   $("powerBtn").disabled = !conn;
   // setpoint
   $("modeTemp").classList.toggle("on", setMode === "temp");
   $("modeLevel").classList.toggle("on", setMode === "level");
   $("setVal").textContent = setVal == null ? "--" : setVal + (setMode === "temp" ? "°" : "");
-  $("setHint").textContent = setMode === "temp" ? "target room temperature" : "power level 1 – 10";
+  $("setHint").textContent = sm ? "target · heater switches on and off" : setMode === "temp" ? "target room temperature" : "power level 1 – 10";
+  renderSmart(h.smart);
   // stats + error
   $("volt").textContent = h.supply_voltage != null ? h.supply_voltage.toFixed(1) : "--";
   $("case").textContent = h.case_temperature != null ? Math.round(h.case_temperature) : "--";
@@ -947,8 +970,9 @@ $("cDemo").onclick = () => { if (MODE !== "demo") location.hash = "demo", locati
 $("cClose").onclick = () => $("dlgConnect").close();
 
 $("powerBtn").onclick = () => {
-  const running = !!S.running_state || [1, 2, 3].includes(S.running_step);
-  act(api("api/power", "POST", {on: !running}), running ? "Turning off…" : "Starting…").then(load);
+  const sm = S.smart?.enabled ? S.smart : null;
+  const running = sm ? !!sm.active : !!S.running_state || [1, 2, 3].includes(S.running_step);
+  act(api("api/power", "POST", {on: !running}), sm ? (running ? "Thermostat off" : "Thermostat on") : running ? "Turning off…" : "Starting…").then(load);
 };
 $("modeTemp").onclick = () => { if (setMode !== "temp") { setMode = "temp"; setVal = S.set_temp || 21; render(); act(api("api/temperature", "POST", {temperature: setVal}), "Thermostat mode"); } };
 $("modeLevel").onclick = () => { if (setMode !== "level") { setMode = "level"; setVal = S.set_level || 5; render(); act(api("api/level", "POST", {level: setVal}), "Power level mode"); } };
@@ -1094,6 +1118,32 @@ $("dlgOnce").addEventListener("close", async () => {
 });
 
 setInterval(() => { if (MODE) renderSched(); }, 30000);  // keep countdowns fresh
+
+/* ---------- smart thermostat (Android app / box only: needs the always-running service) ---------- */
+const SM = {smBelow: ["below", [0.5, 1, 1.5, 2, 3], v => `${v}°`], smAbove: ["above", [0.5, 1, 1.5, 2, 3], v => `${v}°`],
+  smMinOn: ["min_on_min", [10, 15, 20, 30, 45, 60], v => `${v} min`], smMinOff: ["min_off_min", [5, 10, 15, 20, 30], v => `${v} min`],
+  smVolt: ["min_volt", [0, 11.5, 11.8, 12, 12.2, 12.4], v => v ? `${v.toFixed(1)} V` : "no limit"],
+  smOffset: ["offset", [-3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3], v => v ? `${v > 0 ? "+" : ""}${v}°` : "none"]};
+for (const [id, [, vals, f]] of Object.entries(SM)) $(id).innerHTML = vals.map(v => `<option value="${v}">${f(v)}</option>`).join("");
+function renderSmart(sm) {
+  $("smartCard").hidden = !sm;
+  if (!sm || $("smartCard").contains(document.activeElement)) return;
+  $("smEn").checked = !!sm.enabled;
+  $("smOpts").hidden = !sm.enabled;
+  for (const [id, [k, vals]] of Object.entries(SM)) {
+    const v = vals.reduce((a, b) => Math.abs(b - sm[k]) < Math.abs(a - sm[k]) ? b : a);
+    $(id).value = String(v);
+  }
+  $("smTxt").textContent = !sm.enabled ? "Off: the heater's own thermostat only lowers the power near the target and keeps burning."
+    : `Starts below ${+(sm.target - sm.below).toFixed(1)}°, stops above ${+(sm.target + sm.above).toFixed(1)}° (target ${sm.target}° on Home). ${sm.active ? "Now: " + sm.status : "Tap \"Thermostat on\" on Home to start."}`;
+}
+function sendSmart() {
+  const b = {enabled: $("smEn").checked};
+  for (const [id, [k]] of Object.entries(SM)) b[k] = +$(id).value;
+  act(api("api/smart", "POST", b), b.enabled ? "Smart thermostat saved" : "Smart thermostat off").then(() => { document.activeElement?.blur(); load(); });
+}
+$("smEn").onchange = sendSmart;
+Object.keys(SM).forEach(id => { $(id).onchange = sendSmart; });
 
 /* ---------- night mode: keep the screen (and so the page + Bluetooth) awake for in-page timers ---------- */
 let nightOn = false, wake = null, nightT = null;

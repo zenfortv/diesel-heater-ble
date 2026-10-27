@@ -16,6 +16,19 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
     private val pend = mutableListOf<JSONObject>()
     private var last = nowS()
     private var onSince: Double? = null
+    var thermostat: Thermostat? = null
+    // thermostat messages arrive from its own thread: queued, folded into history under this lock
+    private val inbox = java.util.concurrent.ConcurrentLinkedQueue<JSONObject>()
+
+    fun log(action: String, src: String, result: String) {
+        inbox += JSONObject().put("t", iso(LocalDateTime.now(), true)).put("action", action).put("src", src).put("result", result)
+    }
+
+    private fun drain(): Boolean {
+        var any = false
+        while (true) { history.put(inbox.poll() ?: break); any = true }
+        return any
+    }
 
     init {
         try {
@@ -73,6 +86,7 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
     @Synchronized fun setMaxRun(hours: Double) { data.put("max_run_hours", maxOf(0.0, hours)); save() }
 
     @Synchronized fun snapshot(): JSONObject {
+        if (drain()) save()
         val o = JSONObject(data.toString())
         o.put("next", nextEvents(6))
         val h = JSONArray()
@@ -131,6 +145,12 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
     fun nextEvent(): JSONObject? = synchronized(this) { nextEvents(1).optJSONObject(0) }
 
     private fun exec(e: JSONObject): Boolean {
+        val th = thermostat
+        // smart thermostat on: timers switch the thermostat, it decides when the burner runs
+        if (th != null && th.enabled && (e.getString("action") == "off" || e.optString("mode") != "level")) {
+            if (e.getString("action") == "on" && e.optString("mode") == "temp" && e.optDouble("value", 0.0) > 0) th.setTarget(e.getDouble("value"))
+            return th.setActive(e.getString("action") == "on", e.getString("src"))
+        }
         if (e.getString("action") == "off") return heater.power(false)
         var ok = heater.power(true)
         val v = e.optDouble("value", 0.0)
@@ -146,7 +166,7 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
 
     @Synchronized fun tick() {
         val t = nowS()
-        var changed = false
+        var changed = drain()
         for ((at, e) in events(last, t)) {
             if (e.has("once_id")) find("once", e.getString("once_id"))?.put("enabled", false)
             if (e.getString("src") == "countdown") data.put("off_timer", JSONObject.NULL)

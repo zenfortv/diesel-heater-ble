@@ -23,6 +23,7 @@ class HeaterService : Service() {
     lateinit var heater: HeaterLink
         private set
     private lateinit var sched: Scheduler
+    private lateinit var thermo: Thermostat
     private lateinit var web: WebServer
     private lateinit var wake: PowerManager.WakeLock
     private val ticker = Executors.newSingleThreadScheduledExecutor()
@@ -46,10 +47,13 @@ class HeaterService : Service() {
 
         heater = HeaterLink(this) { onState() }
         sched = Scheduler(File(filesDir, "schedules.json"), heater)
+        thermo = Thermostat(this, heater) { action, result -> sched.log(action, "thermostat", result) }
+        sched.thermostat = thermo
         web = WebServer(this, ::api) { stateMsg() }
         try { web.start(PORT) } catch (_: Exception) {}
         heater.start()
         ticker.scheduleWithFixedDelay({ try { sched.tick() } catch (_: Exception) {} }, 5, 5, SECONDS)
+        ticker.scheduleWithFixedDelay({ try { thermo.tick() } catch (_: Exception) {} }, 8, 5, SECONDS)
         ticker.scheduleWithFixedDelay({ updateNote(force = true) }, 30, 30, SECONDS)
         instance = this
     }
@@ -75,7 +79,8 @@ class HeaterService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun stateMsg() = JSONObject().put("type", "state").put("state", heater.state()).toString()
+    private fun fullState(): JSONObject = heater.state().put("smart", if (::thermo.isInitialized) thermo.state() else Thermostat.DEFAULTS)
+    private fun stateMsg() = JSONObject().put("type", "state").put("state", fullState()).toString()
 
     private fun onState() {
         web.broadcast(stateMsg())
@@ -86,10 +91,14 @@ class HeaterService : Service() {
         val h = heater
         fun ok(v: Boolean) = JSONObject().put("ok", v)
         return when (p) {
-            "state" -> JSONObject().put("heater", h.state()).put("paused", h.paused).put("simulated", false).put("schedule", sched.snapshot())
-            "power" -> ok(h.power(b.optBoolean("on")))
+            "state" -> JSONObject().put("heater", fullState()).put("paused", h.paused).put("simulated", false).put("schedule", sched.snapshot())
+            "power" -> ok(if (thermo.enabled) thermo.setActive(b.optBoolean("on"), "app") else h.power(b.optBoolean("on")))
             "level" -> ok(h.setLevel(b.optDouble("level")))
-            "temperature" -> ok(h.setTemperature(b.optDouble("temperature")))
+            "temperature" -> {
+                if (thermo.enabled) thermo.setTarget(b.optDouble("temperature"))
+                ok(h.setTemperature(b.optDouble("temperature")) || (thermo.enabled && !h.connected))
+            }
+            "smart" -> { thermo.configure(b); onState(); thermo.state() }
             "auto_start_stop" -> ok(h.setAutoStartStop(b.optBoolean("on")))
             "builtin_timer" -> ok(h.setBuiltinTimer(b.getString("start"), b.optInt("duration", 60), b.optBoolean("enabled")))
             "sync_clock" -> ok(h.syncClock(true))
@@ -114,8 +123,12 @@ class HeaterService : Service() {
 
     /* ongoing notification: what the heater does + the next timer */
     private fun summary(): String {
-        val s = heater.state()
+        val s = fullState()
         if (s.optBoolean("paused")) return "Bluetooth released"
+        val sm = s.optJSONObject("smart")
+        if (sm != null && sm.optBoolean("enabled") && s.optBoolean("connected") && sm.optBoolean("active"))
+            return "Thermostat ${"%.0f".format(sm.optDouble("target"))}° · " + sm.optString("status") +
+                (if (s.has("cab_temperature")) " · room ${"%.1f".format(sm.optDouble("room"))}°" else "")
         if (!s.optBoolean("connected")) return if (s.optBoolean("connecting")) "Connecting…" else s.optString("last_error").ifEmpty { "Searching for heater…" }
         val step = STEP[s.optInt("running_step", 0)] ?: if (heater.running) "On" else "Off"
         val parts = mutableListOf(step)
