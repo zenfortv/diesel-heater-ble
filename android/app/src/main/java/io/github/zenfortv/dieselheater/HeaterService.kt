@@ -40,6 +40,9 @@ class HeaterService : Service() {
         nm.createNotificationChannel(NotificationChannel(ALERTS, "Safety alerts", NotificationManager.IMPORTANCE_HIGH).apply {
             description = "The heater couldn't be switched off, failed starts, connection lost while running"
         })
+        nm.createNotificationChannel(NotificationChannel(EVENTS, "Heater started / stopped", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            description = "Every start and stop made by the auto thermostat, a timer or the countdown"
+        })
         val n = note("Starting…")
         if (Build.VERSION.SDK_INT >= 29) startForeground(NOTE_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         else startForeground(NOTE_ID, n)
@@ -50,9 +53,10 @@ class HeaterService : Service() {
 
         heater = HeaterLink(this) { onState() }
         sched = Scheduler(File(filesDir, "schedules.json"), heater)
-        thermo = Thermostat(this, heater, { action, result -> sched.log(action, "thermostat", result) }, ::alert)
+        thermo = Thermostat(this, heater, { action, result -> sched.log(action, "thermostat", result) }, ::alert, ::event)
         sched.thermostat = thermo
         sched.alert = ::alert
+        sched.event = ::event
         web = WebServer(this, ::api) { stateMsg() }
         try { web.start(PORT) } catch (_: Exception) {}
         heater.start()
@@ -108,6 +112,15 @@ class HeaterService : Service() {
                 .setContentIntent(open).setAutoCancel(true).build())
     }
 
+    private var eventId = 0
+    private fun event(msg: String) {
+        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        getSystemService(NotificationManager::class.java).notify(200 + (eventId++ % 3),  // keep the last 3
+            Notification.Builder(this, EVENTS).setSmallIcon(R.drawable.ic_flame).setContentTitle("Diesel heater")
+                .setContentText(msg).setStyle(Notification.BigTextStyle().bigText(msg))
+                .setContentIntent(open).setAutoCancel(true).build())
+    }
+
     private fun fullState(): JSONObject = heater.state().put("smart", if (::thermo.isInitialized) thermo.state() else Thermostat.DEFAULTS)
     private fun stateMsg() = JSONObject().put("type", "state").put("state", fullState()).toString()
 
@@ -125,21 +138,31 @@ class HeaterService : Service() {
         fun ok(v: Boolean) = JSONObject().put("ok", v)
         return when (p) {
             "state" -> JSONObject().put("heater", fullState()).put("paused", h.paused).put("simulated", false).put("schedule", sched.snapshot())
-            "power" -> ok(if (thermo.enabled) thermo.setActive(b.optBoolean("on"), "app") else h.power(b.optBoolean("on")))
-            "level" -> ok(h.setLevel(b.optDouble("level")))
+            "auto" -> {
+                if (b.optBoolean("on")) sched.setOffTimer(null)  // nothing else switches the heater while it is on
+                val r = thermo.setEnabled(b.optBoolean("on")); onState(); ok(r)
+            }
+            // locked while the Auto thermostat is on (the page greys them out too)
+            "power", "level", "auto_start_stop", "builtin_timer", "off_timer", "max_run" ->
+                if (thermo.enabled) JSONObject().put("ok", false).put("locked", true).put("error", "Locked while Auto thermostat is on")
+                else when (p) {
+                    "power" -> ok(h.power(b.optBoolean("on")))
+                    "level" -> ok(h.setLevel(b.optDouble("level")))
+                    "auto_start_stop" -> ok(h.setAutoStartStop(b.optBoolean("on")))
+                    "builtin_timer" -> ok(h.setBuiltinTimer(b.getString("start"), b.optInt("duration", 60), b.optBoolean("enabled")))
+                    "off_timer" -> { sched.setOffTimer(if (b.isNull("minutes")) null else b.optDouble("minutes")); sched.snapshot() }
+                    else -> { sched.setMaxRun(b.optDouble("hours", 0.0)); sched.snapshot() }
+                }
             "temperature" -> {
                 if (thermo.enabled) thermo.setTarget(b.optDouble("temperature"))
-                ok(h.setTemperature(b.optDouble("temperature")) || (thermo.enabled && !h.connected))
+                // auto thermostat with the burner off: the target is stored, the heater gets it at the next start
+                ok(if (thermo.enabled && !h.running) true else h.setTemperature(b.optDouble("temperature")))
             }
             "smart" -> { thermo.configure(b); onState(); thermo.state() }
-            "auto_start_stop" -> ok(h.setAutoStartStop(b.optBoolean("on")))
-            "builtin_timer" -> ok(h.setBuiltinTimer(b.getString("start"), b.optInt("duration", 60), b.optBoolean("enabled")))
             "sync_clock" -> ok(h.syncClock(true))
             "set_clock" -> ok(h.setClock(b.getString("time")))
             "pause" -> { h.setPaused(b.optBoolean("paused")); ok(true) }
             "pin" -> { h.pin = b.optInt("pin", 1234); onState(); ok(true) }
-            "off_timer" -> { sched.setOffTimer(if (b.isNull("minutes")) null else b.optDouble("minutes")); sched.snapshot() }
-            "max_run" -> { sched.setMaxRun(b.optDouble("hours", 0.0)); sched.snapshot() }
             "schedule" -> sched.snapshot()
             else -> {
                 val m = Regex("^schedule/(weekly|once)(?:/(\\w+))?$").find(p) ?: return null
@@ -154,31 +177,32 @@ class HeaterService : Service() {
         }
     }
 
-    /* ongoing notification: what the heater does + the next timer */
-    private fun summary(): String {
+    /* ongoing notification: title = what the heater does, text = what happens next and when */
+    private fun summary(): Pair<String, String> {
         val s = fullState()
-        if (s.optBoolean("paused")) return "Bluetooth released"
+        if (s.optBoolean("paused")) return "Bluetooth released" to "Another app can connect to the heater"
+        if (!s.optBoolean("connected")) return (if (s.optBoolean("connecting")) "Connecting…" else "Searching for heater…") to s.optString("last_error")
         val sm = s.optJSONObject("smart")
-        if (sm != null && sm.optBoolean("enabled") && s.optBoolean("connected") && sm.optBoolean("active"))
-            return "Thermostat ${"%.0f".format(sm.optDouble("target"))}° · " + sm.optString("status") +
-                (if (s.has("cab_temperature")) " · room ${"%.1f".format(sm.optDouble("room"))}°" else "")
-        if (!s.optBoolean("connected")) return if (s.optBoolean("connecting")) "Connecting…" else s.optString("last_error").ifEmpty { "Searching for heater…" }
+        val room = sm?.takeIf { it.has("room") }?.let { " · room ${ThermoLogic.fmt(it.getDouble("room"))}°" } ?: ""
+        if (sm != null && sm.optBoolean("enabled"))
+            return "Auto thermostat ${ThermoLogic.fmt(sm.optDouble("target"))}°$room" to sm.optString("status")
         val step = STEP[s.optInt("running_step", 0)] ?: if (heater.running) "On" else "Off"
-        val parts = mutableListOf(step)
-        if (s.has("cab_temperature")) parts += "room ${"%.0f".format(s.optDouble("cab_temperature"))}°C"
-        if (s.optInt("error_code", 0) != 0) parts += "fault E${s.optInt("error_code")}"
-        return parts.joinToString(" · ")
+        val fault = if (s.optInt("error_code", 0) != 0) " · fault E${s.optInt("error_code")}" else ""
+        return "$step$room$fault" to nextTxt()
     }
 
     private fun nextTxt(): String {
         val n = sched.nextEvent() ?: return "No timers scheduled"
         val at = LocalDateTime.parse(n.getString("at"))
-        val day = if (at.toLocalDate() == LocalDateTime.now().toLocalDate()) "today" else at.dayOfWeek.name.take(3).lowercase().replaceFirstChar { it.uppercase() }
-        return "Next: ${if (n.getString("action") == "on") "On" else "Off"} $day ${"%02d:%02d".format(at.hour, at.minute)}"
+        val mins = java.time.Duration.between(LocalDateTime.now(), at).toMinutes().coerceAtLeast(0)
+        val left = if (mins >= 60) "${mins / 60} h ${mins % 60} min" else "$mins min"
+        val day = if (at.toLocalDate() == LocalDateTime.now().toLocalDate()) "" else at.dayOfWeek.name.take(3).lowercase().replaceFirstChar { it.uppercase() } + " "
+        return "Next timer: ${if (n.getString("action") == "on") "On" else "Off"} in $left ($day${"%02d:%02d".format(at.hour, at.minute)})"
     }
 
     private fun updateNote(force: Boolean) {
-        val text = summary() + "\n" + nextTxt()
+        val (title, body) = summary()
+        val text = title + "\n" + body
         val t = System.currentTimeMillis()
         if (text == lastNote || (!force && t - lastNoteAt < 3000)) return
         lastNote = text; lastNoteAt = t
@@ -204,6 +228,7 @@ class HeaterService : Service() {
         const val PORT = 8770
         const val CHANNEL = "link"
         const val ALERTS = "alerts"
+        const val EVENTS = "events"
         const val NOTE_ID = 1
         const val ACTION_QUIT = "quit"
         val STEP = mapOf(0 to "Off", 1 to "Self-test", 2 to "Igniting", 3 to "Heating", 4 to "Cooling down", 6 to "Ventilating")

@@ -61,12 +61,12 @@ with the phone locked, and it starts again after a reboot. On first start allow 
 say **Allow** to "ignore battery optimisation", then pick your heater (BYD-…). Some brands (Xiaomi, Huawei, Samsung)
 also need the app set to "No restrictions" in its battery settings. Build: `sh android/build.sh`.
 
-**Smart thermostat** (app only, Heater tab): the heater's own thermostat mode only lowers the power near the
-target and keeps burning. The smart thermostat switches the burner fully off above the target and back on below
-it, reading the room sensor (it keeps working with the burner off). Limits: start/stop margins (default ±1 °C),
-minimum run (20 min) and rest (10 min) to spare the glow plug and avoid coking, no start under 11.8 V, no restart
-after a fault, sensor correction. Timers drive it too: an "on" slot with a temperature sets the target and
-switches the thermostat on, "off" switches it off. Starting or stopping the heater on its panel is noticed.
+**Auto thermostat** (app only, switch on Home, settings in the Heater tab): the heater's own thermostat mode only
+lowers the power near the target and keeps burning. The Auto thermostat switches the burner fully off above the
+target and back on below it, reading the room sensor (it keeps working with the burner off). While it is on, nothing
+else switches the heater: the power button, timers, countdown, safety auto-off, the built-in timer and the heater's own
+auto start/stop are locked. Switching it off stops the heater. Stopping the heater on its panel switches it off too.
+The notification shows the degrees to go or the time to the next timer, and every start/stop is notified.
 
 ## Safety checklist
 Do this before trusting any automatic function, and again after every update or change to the heater:

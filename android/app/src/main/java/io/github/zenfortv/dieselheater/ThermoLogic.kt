@@ -17,7 +17,7 @@ data class HeaterReading(
 
 enum class Act { NONE, START, STOP }
 
-/** setActive: the thermostat itself was switched on/off (heater started or stopped on its panel). */
+/** setActive = false: the heater was stopped on its panel, so the auto thermostat switches itself off. */
 data class Decision(val act: Act, val status: String, val log: String?, val alert: String?, val setActive: Boolean?)
 
 class ThermoLogic {
@@ -45,24 +45,23 @@ class ThermoLogic {
         starts.clear(); (m["starts"] as? List<*>)?.forEach { (it as? Number)?.let { v -> starts.addLast(v.toDouble()) } }
     }
 
-    fun step(s: ThermoSettings, enabled: Boolean, active: Boolean, r: HeaterReading, now: Double, eager: Boolean = false): Decision {
+    /** on = the Auto thermostat switch; eager = it was just switched on (starts below the target, not below the margin) */
+    fun step(s: ThermoSettings, on: Boolean, r: HeaterReading, now: Double, eager: Boolean = false): Decision {
         // nothing is decided on old or missing data
         if (!r.connected || r.ageS > STALE_S) return Decision(Act.NONE, "Heater not connected", null, null, null)
-        var on = active
+        var auto = on
         var setActive: Boolean? = null
         var log: String? = null
         var alert: String? = null
 
         // notice starts/stops, including the ones made on the heater's panel
         if (wasOn != null && r.burnerOn != wasOn) {
-            if (r.burnerOn) {
-                lastOn = now
-                if (enabled && !on && now > expectOnUntil) { on = true; setActive = true; log = "started on the heater: thermostat takes over" }
-            } else {
+            if (r.burnerOn) lastOn = now
+            else {
                 lastOff = now
-                if (enabled && on && now > expectOffUntil) {
+                if (auto && now > expectOffUntil) {
                     if (r.error != 0) log = "heater stopped with fault E${r.error}"
-                    else { on = false; setActive = false; log = "stopped on the heater: thermostat off" }
+                    else { auto = false; setActive = false; log = "stopped on the heater: auto thermostat switched off" }
                 }
             }
         } else if (wasOn == null && r.burnerOn) lastOn = now
@@ -77,15 +76,14 @@ class ThermoLogic {
                 lastOff = now  // a start that didn't light also waits the rest time before the next try
                 if (failedStarts >= MAX_FAILED_STARTS && lockout == null) {
                     lockout = "$failedStarts starts in a row didn't light"
-                    alert = "Smart thermostat stopped: $lockout. Check the fuel and the heater, then switch the thermostat on again."
+                    alert = "Auto thermostat stopped: $lockout. Check the fuel and the heater, then switch Auto thermostat off and on again."
                     log = "safety: $lockout, no more automatic starts"
                 }
             }
         }
 
         fun d(act: Act, status: String, l: String? = log) = Decision(act, status, l, alert, setActive)
-        if (!enabled) return d(Act.NONE, "")
-        if (!on) return d(Act.NONE, "Off")
+        if (!auto) return d(Act.NONE, "")
         val room = r.roomRaw?.plus(s.offset) ?: return d(Act.NONE, "Waiting for the room temperature")
         val lo = s.target - s.below
         val hi = s.target + s.above
@@ -101,11 +99,11 @@ class ThermoLogic {
                 expectOffUntil = now + EXPECT_S
                 return d(Act.STOP, "Room ${fmt(room)}°: over the ${fmt(HARD_MAX_C)}° safety limit", "safety stop: room ${fmt(room)}°C")
             }
-            if (room < hi) return d(Act.NONE, "Heating, stops at ${fmt(hi)}°")
+            if (room < hi) return d(Act.NONE, "Heating · stops at ${fmt(hi)}° · ${fmt(hi - room)}° to go")
             val wait = s.minOnMin * 60 - (now - lastOn)
-            if (wait > 0) return d(Act.NONE, "Warm, stops in ${mins(wait)} min (minimum run)")
+            if (wait > 0) return d(Act.NONE, "Warm · stops in ${mins(wait)} min (minimum run)")
             expectOffUntil = now + EXPECT_S
-            return d(Act.STOP, "Warm enough, restarts below ${fmt(lo)}°", "thermostat: room ${fmt(room)}°C")
+            return d(Act.STOP, "Stopping · restarts below ${fmt(lo)}°", "auto thermostat: room ${fmt(room)}°C")
         }
 
         while (starts.isNotEmpty() && now - starts.first() > 3600) starts.removeFirst()
@@ -113,16 +111,16 @@ class ThermoLogic {
         return when {
             lockout != null -> d(Act.NONE, "Stopped: $lockout")
             r.error != 0 -> d(Act.NONE, "Heater fault E${r.error}: not restarting")
-            room > (if (eager) s.target - 0.05 else lo) -> d(Act.NONE, "Warm enough, starts below ${fmt(lo)}°")
+            room > (if (eager) s.target - 0.05 else lo) -> d(Act.NONE, "Off · starts below ${fmt(lo)}° · ${fmt(room - lo)}° to go")
             startSentAt > 0 -> d(Act.NONE, "Starting…")
-            rest > 0 -> d(Act.NONE, "Resting, can start in ${mins(rest)} min")
+            rest > 0 -> d(Act.NONE, "Resting · can start in ${mins(rest)} min")
             starts.size >= MAX_STARTS_PER_HOUR -> d(Act.NONE, "$MAX_STARTS_PER_HOUR starts in the last hour: waiting")
             s.minVolt > 0 && (r.volt ?: 0.0) < s.minVolt -> d(Act.NONE, "Battery ${r.volt?.let { fmt(it) } ?: "?"} V: too low to start")
             else -> {
                 expectOnUntil = now + EXPECT_S
                 startSentAt = now
                 starts.addLast(now)
-                d(Act.START, "Starting, target ${fmt(s.target)}°", "thermostat: room ${fmt(room)}°C")
+                d(Act.START, "Starting · target ${fmt(s.target)}°", "auto thermostat: room ${fmt(room)}°C")
             }
         }
     }

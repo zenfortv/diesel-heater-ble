@@ -18,6 +18,7 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
     private var onSince: Double? = null
     var thermostat: Thermostat? = null
     var alert: ((String) -> Unit)? = null
+    var event: ((String) -> Unit)? = null
     // thermostat messages arrive from its own thread: queued, folded into history under this lock
     private val inbox = java.util.concurrent.ConcurrentLinkedQueue<JSONObject>()
 
@@ -146,13 +147,6 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
     fun nextEvent(): JSONObject? = synchronized(this) { nextEvents(1).optJSONObject(0) }
 
     private fun exec(e: JSONObject): Boolean {
-        val th = thermostat
-        // smart thermostat on: timers switch the thermostat, it decides when the burner runs
-        // (power-level slots too: started directly, the thermostat would mistake them for a panel start)
-        if (th != null && th.enabled) {
-            if (e.getString("action") == "on" && e.optString("mode") == "temp" && e.optDouble("value", 0.0) > 0) th.setTarget(e.getDouble("value"))
-            return th.setActive(e.getString("action") == "on", e.getString("src"))
-        }
         if (e.getString("action") == "off") return heater.power(false)
         var ok = heater.power(true)
         val v = e.optDouble("value", 0.0)
@@ -176,12 +170,14 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
             // the app was not running (phone restarted, app killed): don't fire old timers late,
             // only a missed countdown off still runs
             if (t - at > STALE_SEC && e.getString("src") != "countdown") { record(e, "missed (app was not running)"); continue }
+            // Auto thermostat on: it alone switches the heater, timers are locked
+            if (thermostat?.enabled == true) { record(e, "skipped (auto thermostat on)"); continue }
             e.put("deadline", t + 600)
             pend += e
         }
         last = t
         val cap = data.optDouble("max_run_hours", 0.0)
-        onSince = if (heater.running) (onSince ?: t) else null
+        onSince = if (heater.running && thermostat?.enabled != true) (onSince ?: t) else null
         if (cap > 0 && onSince != null && t - onSince!! > cap * 3600) {
             pend += JSONObject().put("action", "off").put("src", "safety cap ${cap}h").put("deadline", t + 600)
             onSince = t
@@ -192,7 +188,11 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
             changed = true
         }
         for (e in pend.toList()) {
-            if (exec(e)) { record(e, "ok"); pend.remove(e); changed = true }
+            if (thermostat?.enabled == true) { record(e, "skipped (auto thermostat on)"); pend.remove(e); changed = true; continue }
+            if (exec(e)) {
+                record(e, "ok"); pend.remove(e); changed = true
+                event?.invoke("Heater ${if (e.getString("action") == "on") "started" else "stopped"} by ${e.getString("src").let { if (it == "countdown") "the countdown" else if (it.startsWith("safety")) "the $it" else "timer $it" }}")
+            }
             else if (t > e.getDouble("deadline")) {
                 record(e, "FAILED (heater unreachable)"); pend.remove(e); changed = true
                 if (e.getString("action") == "off") alert?.invoke("Timer couldn't switch the heater off (${e.getString("src")}). Check it.")

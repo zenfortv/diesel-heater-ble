@@ -87,6 +87,12 @@ main{max-width:560px;margin:0 auto;display:grid;gap:12px}
 .item .t{font-weight:700;font-variant-numeric:tabular-nums}
 .item .s{font-size:12px;color:var(--mute)}
 .item.dim{opacity:.5}
+/* auto thermostat switch + everything it locks */
+.autoBox{width:100%;max-width:340px;display:grid;gap:6px;background:var(--card2);border:1px solid var(--line);border-radius:16px;padding:10px 12px;text-align:left}
+.autoBox.on{border-color:var(--hot);box-shadow:0 0 0 1px var(--hot) inset}
+#smHome{margin:0;font-weight:650;color:var(--hot2)}
+.locked > :not(h2):not(.lockNote){opacity:.4;pointer-events:none}
+.lockNote{margin:0;font-size:13px;color:var(--amber)}
 .empty{color:var(--mute);font-size:13px;padding:4px 0}
 
 /* week chart */
@@ -170,7 +176,11 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
         </div>
       </div>
       <button class="power primary" id="powerBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3v8M6.3 6.8a8 8 0 1 0 11.4 0"/></svg><span id="powerTxt">Turn on</span></button>
-      <p class="mute" id="smHome" hidden></p>
+      <div class="autoBox" id="autoHome" hidden>
+        <div class="row between"><span><b>Auto thermostat</b><br><span class="mute">switches the heater on and off by itself to keep the target</span></span>
+          <label class="sw"><input type="checkbox" id="autoSw"><i></i></label></div>
+        <p id="smHome"></p>
+      </div>
     </div>
 
     <div class="card errcard" id="errCard" hidden><b id="errTitle"></b><p id="errTip" class="mute"></p></div>
@@ -190,8 +200,9 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       <div class="stat"><b id="errShort">--</b><span>fault</span></div>
     </div>
 
-    <div class="card">
+    <div class="card" id="offCard">
       <div class="row between"><h2>Switch off in</h2><button class="link" id="offCancel" hidden>Cancel</button></div>
+      <p class="lockNote" hidden></p>
       <div class="qrow" id="offBtns"><button data-m="30">30 m</button><button data-m="60">1 h</button><button data-m="120">2 h</button><button data-m="240">4 h</button></div>
       <p class="mute" id="offTxt">No countdown running</p>
     </div>
@@ -203,12 +214,14 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
   <!-- TIMERS -->
   <section class="panel" id="p-timers">
     <div class="banner info" id="localNote" hidden></div>
-    <div class="card">
+    <div class="banner info" id="timersLocked" hidden>🔒 <b>Locked: Auto thermostat is on.</b> Timers don't switch the heater while it's on.
+      Switch Auto thermostat off on Home to use them again.</div>
+    <div class="card" id="weeklyCard">
       <div class="row between"><h2>Weekly</h2><button class="small primary" id="addSlot">+ Add</button></div>
       <div class="week" id="week"></div>
       <div class="list" id="slotList"></div>
     </div>
-    <div class="card">
+    <div class="card" id="onceCard">
       <div class="row between"><h2>One-time</h2><button class="small" id="addOnce">+ Add</button></div>
       <div class="list" id="onceList"></div>
     </div>
@@ -220,8 +233,9 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 
   <!-- HEATER -->
   <section class="panel" id="p-heater">
-    <div class="card">
+    <div class="card" id="btCard">
       <h2>Built-in timer</h2>
+      <p class="lockNote" hidden></p>
       <p class="mute">Saved inside the heater: one daily start + run time. Works even with no phone, PC or ESP around.</p>
       <div class="grid2">
         <label class="f">Start<input type="time" id="btStart" value="06:30"></label>
@@ -243,9 +257,9 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
     </div>
 
     <div class="card" id="smartCard" hidden>
-      <h2>Smart thermostat</h2>
-      <div class="row between"><span>Switch the heater on and off<br><span class="mute">holds the target by stopping the burner, not just turning it down</span></span>
-        <label class="sw"><input type="checkbox" id="smEn"><i></i></label></div>
+      <h2>Auto thermostat settings</h2>
+      <p class="mute">Switch it on or off on Home. It stops the burner above the target and starts it again below, instead of
+        just turning it down like the heater's own thermostat.</p>
       <div class="grid2" id="smOpts">
         <label class="f">Start when below target by<select id="smBelow"></select></label>
         <label class="f">Stop when above target by<select id="smAbove"></select></label>
@@ -257,8 +271,9 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       <p class="mute" id="smTxt"></p>
     </div>
 
-    <div class="card">
+    <div class="card" id="optCard">
       <h2>Options</h2>
+      <p class="lockNote" hidden></p>
       <div class="row between" id="autoRow" hidden><span>Auto start/stop<br><span class="mute">burner stops at target, restarts when cold</span></span>
         <label class="sw"><input type="checkbox" id="autoSS"><i></i></label></div>
       <div class="row between"><span>Safety auto-off<br><span class="mute">if left running too long</span></span>
@@ -796,11 +811,17 @@ function render() {
   }
   const frac = setVal == null ? 0 : setMode === "temp" ? (setVal - 8) / 28 : setVal / 10;
   $("arc").setAttribute("stroke-dasharray", `${(clamp(frac, 0, 1) * 100).toFixed(1)} 100`);
-  const running = sm ? !!sm.active : on || step === 1 || step === 2 || step === 3;
-  $("powerTxt").textContent = sm ? (running ? "Thermostat off" : "Thermostat on") : running ? "Turn off" : "Turn on";
-  $("smHome").hidden = !sm || !conn;
-  $("smHome").textContent = sm ? (sm.active ? `Holding ${sm.target}° · ${sm.status}` : "Smart thermostat ready: tap to hold the target") : "";
+  const running = on || step === 1 || step === 2 || step === 3;
+  $("powerTxt").textContent = running ? "Turn off" : "Turn on";
+  // auto thermostat: one switch; while it's on the power button and everything that switches the heater is locked
+  $("autoHome").hidden = !h.smart;
+  $("autoHome").classList.toggle("on", !!sm);
+  if (!autoBusy) $("autoSw").checked = !!sm;
+  $("smHome").hidden = !sm;
+  $("smHome").textContent = sm ? (conn ? sm.status || "…" : "Heater not connected") : "";
+  $("powerBtn").hidden = !!sm;
   $("modeTemp").parentElement.hidden = !!sm;
+  lockAll(!!sm);
   $("powerBtn").className = "power " + (running ? "danger" : "primary");
   $("powerBtn").disabled = !conn;
   // setpoint
@@ -877,7 +898,7 @@ function renderSched() {
     <div class="item"><div><div class="t">${whenTxt(e.at)} · ${esc(evLabel(e))}</div><div class="s">${esc(e.src)}</div></div>
       <span class="dot ${e.action === "on" ? "ok" : ""}"></span></div>`).join("") : `<p class="empty">Nothing scheduled</p>`;
   const n = s.next[0];
-  $("nextHomeTxt").textContent = n ? `${evLabel(n)} · ${whenTxt(n.at)} (in ${fmtIn(new Date(n.at) / 1000 - t)})` : "Nothing scheduled";
+  $("nextHomeTxt").textContent = S.smart?.enabled ? "Paused while Auto thermostat is on" : n ?`${evLabel(n)} · ${whenTxt(n.at)} (in ${fmtIn(new Date(n.at) / 1000 - t)})` : "Nothing scheduled";
   $("hist").innerHTML = s.history.slice().reverse().map(x => `<div class="item"><div><div class="t">${esc(x.action)} · ${esc(x.result)}</div><div class="s">${esc(x.t.replace("T", " "))} · ${esc(x.src)}</div></div></div>`).join("") || `<p class="empty">Empty</p>`;
 }
 
@@ -978,9 +999,8 @@ $("cDemo").onclick = () => { if (MODE !== "demo") location.hash = "demo", locati
 $("cClose").onclick = () => $("dlgConnect").close();
 
 $("powerBtn").onclick = () => {
-  const sm = S.smart?.enabled ? S.smart : null;
-  const running = sm ? !!sm.active : !!S.running_state || [1, 2, 3].includes(S.running_step);
-  act(api("api/power", "POST", {on: !running}), sm ? (running ? "Thermostat off" : "Thermostat on") : running ? "Turning off…" : "Starting…").then(load);
+  const running = !!S.running_state || [1, 2, 3].includes(S.running_step);
+  act(api("api/power", "POST", {on: !running}), running ? "Turning off…" : "Starting…").then(load);
 };
 $("modeTemp").onclick = () => { if (setMode !== "temp") { setMode = "temp"; setVal = S.set_temp || 21; render(); act(api("api/temperature", "POST", {temperature: setVal}), "Thermostat mode"); } };
 $("modeLevel").onclick = () => { if (setMode !== "level") { setMode = "level"; setVal = S.set_level || 5; render(); act(api("api/level", "POST", {level: setVal}), "Power level mode"); } };
@@ -1136,22 +1156,40 @@ for (const [id, [, vals, f]] of Object.entries(SM)) $(id).innerHTML = vals.map(v
 function renderSmart(sm) {
   $("smartCard").hidden = !sm;
   if (!sm || $("smartCard").contains(document.activeElement)) return;
-  $("smEn").checked = !!sm.enabled;
-  $("smOpts").hidden = !sm.enabled;
   for (const [id, [k, vals]] of Object.entries(SM)) {
     const v = vals.reduce((a, b) => Math.abs(b - sm[k]) < Math.abs(a - sm[k]) ? b : a);
     $(id).value = String(v);
   }
-  $("smTxt").textContent = !sm.enabled ? "Off: the heater's own thermostat only lowers the power near the target and keeps burning."
-    : `Starts below ${+(sm.target - sm.below).toFixed(1)}°, stops above ${+(sm.target + sm.above).toFixed(1)}° (target ${sm.target}° on Home). ${sm.active ? "Now: " + sm.status : "Tap \"Thermostat on\" on Home to start."}`;
+  $("smTxt").textContent = `With the target at ${sm.target}°: starts below ${+(sm.target - sm.below).toFixed(1)}°, stops above ${+(sm.target + sm.above).toFixed(1)}°.` +
+    (sm.enabled ? ` Now: ${sm.status}` : " Auto thermostat is off.");
 }
 function sendSmart() {
-  const b = {enabled: $("smEn").checked};
+  const b = {};
   for (const [id, [k]] of Object.entries(SM)) b[k] = +$(id).value;
-  act(api("api/smart", "POST", b), b.enabled ? "Smart thermostat saved" : "Smart thermostat off").then(() => { document.activeElement?.blur(); load(); });
+  act(api("api/smart", "POST", b), "Settings saved").then(() => { document.activeElement?.blur(); load(); });
 }
-$("smEn").onchange = sendSmart;
 Object.keys(SM).forEach(id => { $(id).onchange = sendSmart; });
+
+let autoBusy = false;
+$("autoSw").onchange = async e => {
+  const on = e.target.checked;
+  autoBusy = true;
+  await act(api("api/auto", "POST", {on}), on ? "Auto thermostat on" : "Auto thermostat off · heater stopped");
+  autoBusy = false;
+  load();
+};
+
+// while the Auto thermostat is on, nothing else may switch the heater: grey these out with the reason
+const LOCKS = {offCard: "🔒 Off: Auto thermostat is on.", weeklyCard: "", onceCard: "",
+  btCard: "🔒 Off: Auto thermostat is on. Disable the heater's own timer too if it is set, or it will start the heater by itself.",
+  optCard: "🔒 Safety auto-off is not used while Auto thermostat is on."};
+function lockAll(on) {
+  $("timersLocked").hidden = !on;
+  for (const [id, msg] of Object.entries(LOCKS)) {
+    const c = $(id); c.classList.toggle("locked", on);
+    const n = c.querySelector(".lockNote"); if (n) { n.hidden = !on; n.textContent = msg; }
+  }
+}
 
 /* ---------- night mode: keep the screen (and so the page + Bluetooth) awake for in-page timers ---------- */
 let nightOn = false, wake = null, nightT = null;
