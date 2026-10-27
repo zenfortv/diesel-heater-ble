@@ -203,6 +203,39 @@ class ThermoLogicTest {
         assertTrue(d.status.contains("can't decide"))
     }
 
+    // phone as room sensor: roomRaw = phone, crossRoom = heater's own reading while it runs
+    private fun phoneReading(phone: Double, on: Boolean = false, heater: Double? = null) =
+        HeaterReading(true, 2.0, on, if (on) 3 else 0, 0, phone, if (on) 12.6 else null, heater)
+
+    @Test fun phoneSensorStartsAHeaterThatSendsNoReadingWhileOff() {
+        val l = idle()
+        // heater off sends no voltage either: with the phone the battery limit can't be checked -> no start
+        assertEquals(Act.NONE, l.step(s, true, phoneReading(18.0), 10_000.0).act)
+        // with the battery limit off (the user's choice) the phone reading is enough
+        assertEquals(Act.START, l.step(s.copy(minVolt = 0.0), true, phoneReading(18.0), 10_005.0).act)
+    }
+
+    @Test fun phoneAndHeaterDisagreeingStopsAndLocks() {
+        val noLimit = s.copy(minVolt = 0.0)
+        val l = ThermoLogic().also { it.step(noLimit, true, phoneReading(25.0), 0.0) }
+        var t = 10_000.0
+        assertEquals(Act.START, l.step(noLimit, true, phoneReading(18.0), t).act)
+        t += 10; l.step(noLimit, true, phoneReading(18.0, on = true, heater = 19.0), t)        // close: fine
+        assertNull(l.lockout)
+        t += 60; val d = l.step(noLimit, true, phoneReading(9.0, on = true, heater = 21.0), t)  // phone taken outside
+        assertEquals(Act.STOP, d.act)
+        assertNotNull(d.alert)
+        t += 30; l.step(noLimit, true, phoneReading(9.0), t)
+        t += 30 * 60; assertEquals(Act.NONE, l.step(noLimit, true, phoneReading(5.0), t).act)  // locked: no restart
+    }
+
+    @Test fun heaterCeilingStillAppliesWithThePhoneAsSensor() {
+        val noLimit = s.copy(minVolt = 0.0, target = 30.0, above = 5.0)
+        val l = ThermoLogic().also { it.step(noLimit, true, phoneReading(20.0), 0.0) }
+        l.step(noLimit, true, phoneReading(20.0, on = true, heater = 25.0), 10_000.0)
+        assertEquals(Act.STOP, l.step(noLimit, true, phoneReading(28.0, on = true, heater = 35.5), 10_060.0).act)
+    }
+
     @Test fun sensorCorrectionIsApplied() {
         val l = idle()
         // reads 21.5 but the user measured 2° less: 19.5 is below 20 -> start

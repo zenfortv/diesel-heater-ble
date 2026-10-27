@@ -1,6 +1,9 @@
 package io.github.zenfortv.dieselheater
 
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -40,7 +43,36 @@ class Thermostat(
         private set
     private fun d(k: String) = cfg.optDouble(k, DEFAULTS.optDouble(k))
     private fun save() = prefs.edit().putString("thermo", cfg.toString()).apply()
-    private fun settings() = ThermoSettings(d("target"), d("below"), d("above"), d("min_on_min"), d("min_off_min"), d("min_volt"), d("offset"))
+    private val phoneSource get() = cfg.optString("source") == "phone"
+    // the correction of the sensor in use: the logic sees one room temperature
+    private fun settings() = ThermoSettings(d("target"), d("below"), d("above"), d("min_on_min"), d("min_off_min"), d("min_volt"),
+        if (phoneSource) d("phone_offset") else d("offset"))
+
+    /* the phone as room sensor: every phone reports its battery temperature (a true ambient sensor is rare).
+       Lying still it is close to the air around it; charging or in use it reads warmer. */
+    private val app = ctx.applicationContext
+    private fun phone(): Pair<Double?, Boolean> {
+        val i = app.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return null to false
+        val t = i.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+        return (if (t == Int.MIN_VALUE || t == 0) null else t / 10.0) to (i.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0)
+    }
+    // the heater sends no voltage while off: the last reading while it ran (under load, so on the low side)
+    // stands in for up to 6 h, so the battery limit still works between cycles
+    private var lastVolt = prefs.getFloat("last_volt", 0f).toDouble()
+    private var lastVoltAt = prefs.getLong("last_volt_at", 0L).toDouble()
+    private fun volt(f: JSONObject): Pair<Double?, Boolean> {
+        if (f.has("supply_voltage")) {
+            val v = f.getDouble("supply_voltage")
+            if (nowS() - lastVoltAt > 300 || kotlin.math.abs(v - lastVolt) >= 0.1) {
+                lastVolt = v; lastVoltAt = nowS()
+                prefs.edit().putFloat("last_volt", v.toFloat()).putLong("last_volt_at", nowS().toLong()).apply()
+            }
+            return v to false
+        }
+        return (if (lastVoltAt > 0 && nowS() - lastVoltAt < 6 * 3600) lastVolt else null) to true
+    }
+    private fun heaterRoom(): Double? = heater.frame().let { if (it.has("cab_temperature")) it.getDouble("cab_temperature") + d("offset") else null }
+    private fun r1(v: Double) = Math.round(v * 10) / 10.0
 
     private var savedMem = ""
     private fun saveMem() {
@@ -52,8 +84,12 @@ class Thermostat(
 
     @Synchronized fun state(): JSONObject {
         val o = JSONObject(cfg.toString()).put("status", status)
-        val f = heater.frame()
-        if (f.has("cab_temperature")) o.put("room", (f.getDouble("cab_temperature") + d("offset")).let { Math.round(it * 10) / 10.0 })
+        val (pt, charging) = phone()
+        pt?.let { o.put("phone_temp", r1(it + d("phone_offset"))).put("phone_raw", r1(it)) }
+        o.put("phone_charging", charging)
+        heaterRoom()?.let { o.put("heater_room", r1(it)) }
+        // "room" = the reading the thermostat uses
+        (if (phoneSource) pt?.plus(d("phone_offset")) else heaterRoom())?.let { o.put("room", r1(it)) }
         logic.lockout?.let { o.put("lockout", it) }
         return o
     }
@@ -65,7 +101,8 @@ class Thermostat(
         cfg.put("below", d("below").coerceIn(0.5, 5.0)).put("above", d("above").coerceIn(0.5, 5.0))
             .put("min_on_min", d("min_on_min").coerceIn(10.0, 120.0)).put("min_off_min", d("min_off_min").coerceIn(5.0, 120.0))
             .put("offset", d("offset").coerceIn(-5.0, 5.0)).put("target", d("target").coerceIn(8.0, MAX_TARGET))
-            .put("min_volt", d("min_volt").coerceIn(0.0, 13.0))
+            .put("min_volt", d("min_volt").coerceIn(0.0, 13.0)).put("phone_offset", d("phone_offset").coerceIn(-10.0, 5.0))
+            .put("source", if (cfg.optString("source") == "phone") "phone" else "heater")
         save()
         tick()
     }
@@ -100,27 +137,30 @@ class Thermostat(
 
     @Synchronized fun tick(eager: Boolean = false) {
         val f = heater.frame()
+        val burnerOn = f.optInt("running_state", 0) == 1
+        val (pt, charging) = phone()
         val r = HeaterReading(
             connected = heater.connected, ageS = nowS() - heater.updatedAt,
-            burnerOn = f.optInt("running_state", 0) == 1, step = f.optInt("running_step", 0), error = f.optInt("error_code", 0),
-            roomRaw = if (f.has("cab_temperature")) f.getDouble("cab_temperature") else null,
-            volt = if (f.has("supply_voltage")) f.getDouble("supply_voltage") else null,
+            burnerOn = burnerOn, step = f.optInt("running_step", 0), error = f.optInt("error_code", 0),
+            roomRaw = if (phoneSource) pt else if (f.has("cab_temperature")) f.getDouble("cab_temperature") else null,
+            volt = volt(f).first,
+            crossRoom = if (phoneSource && burnerOn) heaterRoom() else null,
         )
         val dcs = logic.step(settings(), enabled, r, nowS(), eager)
         dcs.setActive?.let { enabled = it; cfg.put("enabled", it); save() }
-        status = dcs.status
+        status = dcs.status + if (enabled && phoneSource && charging) " · phone charging: reads warmer" else ""
         dcs.alert?.let(alert)
-        val room = r.roomRaw?.let { ThermoLogic.fmt(it + d("offset")) } ?: "?"
+        val room = r.roomRaw?.let { ThermoLogic.fmt(it + settings().offset) + if (phoneSource) "° (phone)" else "°" } ?: "?"
         when (dcs.act) {
             Act.START -> {
                 val ok = heater.power(true) && heater.setTemperature(d("target"))
                 log("on", dcs.log + if (ok) "" else " (no answer)")
-                if (ok) event("Heater started by the auto thermostat · room $room° · target ${ThermoLogic.fmt(d("target"))}°")
+                if (ok) event("Heater started by the auto thermostat · room $room · target ${ThermoLogic.fmt(d("target"))}°")
             }
             Act.STOP -> {
                 val ok = heater.power(false)
-                log("off", dcs.log + if (ok) "" else " (no answer, retrying)")
-                if (ok) event("Heater stopped by the auto thermostat · room $room°")
+                dcs.log?.let { log("off", it + if (ok) "" else " (no answer, retrying)") }
+                if (ok && dcs.log != null) event("Heater stopped by the auto thermostat · room $room")
                 else alert("Couldn't switch the heater off (no answer). Check it.")
             }
             Act.NONE -> dcs.log?.let {
@@ -133,9 +173,9 @@ class Thermostat(
 
     companion object {
         const val MAX_TARGET = 30.0
-        private val KEYS = listOf("target", "below", "above", "min_on_min", "min_off_min", "min_volt", "offset")
+        private val KEYS = listOf("target", "below", "above", "min_on_min", "min_off_min", "min_volt", "offset", "source", "phone_offset")
         val DEFAULTS: JSONObject = JSONObject().put("enabled", false).put("target", 21.0)
             .put("below", 1.0).put("above", 1.0).put("min_on_min", 20.0).put("min_off_min", 10.0)
-            .put("min_volt", 11.8).put("offset", 0.0)
+            .put("min_volt", 11.8).put("offset", 0.0).put("source", "heater").put("phone_offset", 0.0)
     }
 }

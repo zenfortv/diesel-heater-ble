@@ -260,13 +260,18 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       <h2>Auto thermostat settings</h2>
       <p class="mute">Switch it on or off on Home. It stops the burner above the target and starts it again below, instead of
         just turning it down like the heater's own thermostat.</p>
+      <label class="f">Room temperature from<select id="smSrc">
+        <option value="heater">Heater sensor (some heaters send none while off)</option>
+        <option value="phone">This phone (leave it in the van, still)</option></select></label>
+      <p class="mute" id="smSensors"></p>
       <div class="grid2" id="smOpts">
         <label class="f">Start when below target by<select id="smBelow"></select></label>
         <label class="f">Stop when above target by<select id="smAbove"></select></label>
         <label class="f">Run at least<select id="smMinOn"></select></label>
         <label class="f">Rest at least<select id="smMinOff"></select></label>
         <label class="f">Don't start if battery under<select id="smVolt"></select></label>
-        <label class="f">Room sensor correction<select id="smOffset"></select></label>
+        <label class="f" id="smOffsetL">Heater sensor correction<select id="smOffset"></select></label>
+        <label class="f" id="smPhoneOffL">Phone sensor correction<select id="smPhoneOff"></select></label>
       </div>
       <p class="mute" id="smTxt"></p>
     </div>
@@ -825,9 +830,11 @@ function render() {
   const cls = !conn ? "s-dis" : step === 1 || step === 2 ? "s-ign" : step === 3 ? "s-run" : step === 4 || step === 6 ? "s-cool" : "s-off";
   $("hero").className = "card hero " + cls;
   const sm = h.smart?.enabled ? h.smart : null;  // smart thermostat (Android app)
-  const roomC = h.cab_temperature != null ? h.cab_temperature + (h.smart?.offset || 0) : null;
+  const byPhone = h.smart?.source === "phone";  // room temperature from the phone's sensor (Android app)
+  const roomC = byPhone ? h.smart.room ?? null : h.cab_temperature != null ? h.cab_temperature + (h.smart?.offset || 0) : null;
   $("room").textContent = roomC != null ? (Math.round(roomC * 10) / 10).toString() : "--";
-  $("roomLbl").textContent = h.sensors_blank && conn ? "heater sends no reading while off" : "in the room";
+  $("roomLbl").textContent = byPhone ? "in the room · phone" + (h.smart.phone_charging ? " (charging)" : "")
+    : h.sensors_blank && conn ? "heater sends no reading while off" : "in the room";
   $("stateTxt").textContent = !MODE ? "Not connected" : !conn ? (h.paused ? "Released" : "Searching for heater…") : (STEP[step] ?? (on ? "On" : "Off"));
   if (!editing && sm) { setMode = "temp"; setVal = sm.target; }
   else if (!editing) {
@@ -1176,7 +1183,8 @@ setInterval(() => { if (MODE) renderSched(); }, 30000);  // keep countdowns fres
 const SM = {smBelow: ["below", [0.5, 1, 1.5, 2, 3], v => `${v}°`], smAbove: ["above", [0.5, 1, 1.5, 2, 3], v => `${v}°`],
   smMinOn: ["min_on_min", [10, 15, 20, 30, 45, 60], v => `${v} min`], smMinOff: ["min_off_min", [5, 10, 15, 20, 30], v => `${v} min`],
   smVolt: ["min_volt", [0, 11.5, 11.8, 12, 12.2, 12.4], v => v ? `${v.toFixed(1)} V` : "no limit"],
-  smOffset: ["offset", [-3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3], v => v ? `${v > 0 ? "+" : ""}${v}°` : "none"]};
+  smOffset: ["offset", [-3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3], v => v ? `${v > 0 ? "+" : ""}${v}°` : "none"],
+  smPhoneOff: ["phone_offset", [-8, -7, -6, -5, -4, -3.5, -3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 2], v => v ? `${v > 0 ? "+" : ""}${v}°` : "none"]};
 for (const [id, [, vals, f]] of Object.entries(SM)) $(id).innerHTML = vals.map(v => `<option value="${v}">${f(v)}</option>`).join("");
 function renderSmart(sm) {
   $("smartCard").hidden = !sm;
@@ -1185,15 +1193,23 @@ function renderSmart(sm) {
     const v = vals.reduce((a, b) => Math.abs(b - sm[k]) < Math.abs(a - sm[k]) ? b : a);
     $(id).value = String(v);
   }
+  const phone = sm.source === "phone";
+  $("smSrc").value = phone ? "phone" : "heater";
+  $("smOffsetL").hidden = phone; $("smPhoneOffL").hidden = !phone;
+  $("smSensors").textContent = `Now: phone ${sm.phone_temp != null ? sm.phone_temp + "°" : "?"}` +
+    (sm.phone_charging ? " (charging: reads warmer)" : "") +
+    ` · heater ${sm.heater_room != null ? sm.heater_room + "°" : "no reading (off)"}.` +
+    (phone ? " Set the correction so the phone matches a real thermometer. While the heater runs, the two are compared: more than 8° apart stops it." : "");
   $("smTxt").textContent = `With the target at ${sm.target}°: starts below ${+(sm.target - sm.below).toFixed(1)}°, stops above ${+(sm.target + sm.above).toFixed(1)}°.` +
     (sm.enabled ? ` Now: ${sm.status}` : " Auto thermostat is off.");
 }
 function sendSmart() {
-  const b = {};
+  const b = {source: $("smSrc").value};
   for (const [id, [k]] of Object.entries(SM)) b[k] = +$(id).value;
   act(api("api/smart", "POST", b), "Settings saved").then(() => { document.activeElement?.blur(); load(); });
 }
 Object.keys(SM).forEach(id => { $(id).onchange = sendSmart; });
+$("smSrc").onchange = sendSmart;
 
 async function loadRaw() {
   try { const r = await api("api/raw"); $("rawList").textContent = (r.frames || []).slice().reverse().join("\n") || "No data yet"; }

@@ -13,6 +13,8 @@ data class ThermoSettings(
 data class HeaterReading(
     val connected: Boolean, val ageS: Double, val burnerOn: Boolean, val step: Int, val error: Int,
     val roomRaw: Double?, val volt: Double?,
+    /** with the phone as the room sensor: the heater's own reading (corrected) while it runs, to cross-check */
+    val crossRoom: Double? = null,
 )
 
 enum class Act { NONE, START, STOP }
@@ -96,7 +98,21 @@ class ThermoLogic {
             return d(Act.STOP, "Room sensor reads ${fmt(room)}°: stopped", "safety stop: room sensor reads ${fmt(room)}°C")
         }
         if (r.burnerOn) {
+            // phone as the sensor but far from what the heater reads (in a pocket, by a window, out of the van):
+            // stop and lock until the user checks, the phone can't be trusted
+            if (r.crossRoom != null && kotlin.math.abs(room - r.crossRoom) > MAX_DISAGREE_C && lockout == null) {
+                lockout = "phone reads ${fmt(room)}°, heater ${fmt(r.crossRoom)}°"
+                alert = "Auto thermostat stopped: $lockout. Is the phone in the van? Check, then switch Auto thermostat off and on again."
+                expectOffUntil = now + EXPECT_S
+                return d(Act.STOP, "Stopped: $lockout", "safety stop: $lockout")
+            }
+            // locked out but still burning (the stop didn't get through): keep stopping
+            if (lockout != null) { expectOffUntil = now + EXPECT_S; return d(Act.STOP, "Stopped: $lockout", null) }
             // hard ceiling: stops at once, minimum run or not
+            if (r.crossRoom != null && r.crossRoom >= HARD_MAX_C) {
+                expectOffUntil = now + EXPECT_S
+                return d(Act.STOP, "Heater reads ${fmt(r.crossRoom)}°: over the ${fmt(HARD_MAX_C)}° safety limit", "safety stop: heater reads ${fmt(r.crossRoom)}°C")
+            }
             if (room >= HARD_MAX_C) {
                 expectOffUntil = now + EXPECT_S
                 return d(Act.STOP, "Room ${fmt(room)}°: over the ${fmt(HARD_MAX_C)}° safety limit", "safety stop: room ${fmt(room)}°C")
@@ -110,6 +126,7 @@ class ThermoLogic {
 
         while (starts.isNotEmpty() && now - starts.first() > 3600) starts.removeFirst()
         val rest = s.minOffMin * 60 - (now - lastOff)
+        val volt = r.volt
         return when {
             lockout != null -> d(Act.NONE, "Stopped: $lockout")
             r.error != 0 -> d(Act.NONE, "Heater fault E${r.error}: not restarting")
@@ -117,7 +134,8 @@ class ThermoLogic {
             startSentAt > 0 -> d(Act.NONE, "Starting…")
             rest > 0 -> d(Act.NONE, "Resting · can start in ${mins(rest)} min")
             starts.size >= MAX_STARTS_PER_HOUR -> d(Act.NONE, "$MAX_STARTS_PER_HOUR starts in the last hour: waiting")
-            s.minVolt > 0 && (r.volt ?: 0.0) < s.minVolt -> d(Act.NONE, "Battery ${r.volt?.let { fmt(it) } ?: "?"} V: too low to start")
+            s.minVolt > 0 && volt == null -> d(Act.NONE, "Battery voltage unknown (the heater sends none while off): not starting. Set the battery limit to \"no limit\" to allow it")
+            s.minVolt > 0 && volt != null && volt < s.minVolt -> d(Act.NONE, "Battery ${fmt(volt)} V: too low to start")
             else -> {
                 expectOnUntil = now + EXPECT_S
                 startSentAt = now
@@ -133,6 +151,7 @@ class ThermoLogic {
         const val MAX_FAILED_STARTS = 2         // unlit fuel must not pile up in the burner
         const val MAX_STARTS_PER_HOUR = 3
         const val HARD_MAX_C = 35.0
+        const val MAX_DISAGREE_C = 8.0
         const val SENSOR_MIN_C = -40.0
         const val SENSOR_MAX_C = 80.0
         const val EXPECT_S = 180.0
