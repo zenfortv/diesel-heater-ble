@@ -14,6 +14,8 @@ class Thermostat(
     private val log: (action: String, result: String) -> Unit,
     private val alert: (String) -> Unit,
     private val event: (String) -> Unit,
+    /** a problem waiting for "OK, keep working" (null: none any more) */
+    private val alarm: (Alarm?) -> Unit = {},
 ) {
     private val prefs = ctx.getSharedPreferences("heater", Context.MODE_PRIVATE)
     private val cfg = JSONObject(DEFAULTS.toString())
@@ -32,7 +34,9 @@ class Thermostat(
             val starts = m.optJSONArray("starts")
             logic.restore(mapOf("lastOn" to m.optDouble("lastOn", 0.0), "lastOff" to m.optDouble("lastOff", 0.0),
                 "failedStarts" to m.optInt("failedStarts", 0), "lockout" to (if (m.isNull("lockout")) null else m.optString("lockout")),
-                "starts" to (0 until (starts?.length() ?: 0)).map { starts!!.getDouble(it) }))
+                "starts" to (0 until (starts?.length() ?: 0)).map { starts!!.getDouble(it) },
+                "lockoutCross" to m.optBoolean("lockoutCross"),
+                "acked" to (m.optJSONArray("acked")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList<String>())))
         } catch (_: Exception) {}
     }
 
@@ -74,7 +78,8 @@ class Thermostat(
     private fun saveMem() {
         val m = logic.export()
         val j = JSONObject().put("lastOn", m["lastOn"]).put("lastOff", m["lastOff"]).put("failedStarts", m["failedStarts"])
-            .put("lockout", m["lockout"] ?: JSONObject.NULL).put("starts", JSONArray(m["starts"] as List<*>)).toString()
+            .put("lockout", m["lockout"] ?: JSONObject.NULL).put("starts", JSONArray(m["starts"] as List<*>))
+            .put("lockoutCross", m["lockoutCross"]).put("acked", JSONArray(m["acked"] as List<*>)).toString()
         if (j != savedMem) { savedMem = j; prefs.edit().putString("thermo_mem", j).apply() }
     }
 
@@ -88,6 +93,7 @@ class Thermostat(
         // "room" = the reading the thermostat uses
         (if (phoneSource) pr else heaterRoom())?.let { o.put("room", r1(it)) }
         logic.lockout?.let { o.put("lockout", it) }
+        current?.let { o.put("alarm", JSONObject().put("key", it.key).put("title", it.title).put("text", it.text)) }
         return o
     }
 
@@ -105,6 +111,18 @@ class Thermostat(
         if (b.has("lat") || b.has("lon")) phone.refreshWeather()
         tick()
     }
+
+    /** "OK, keep working": the thermostat carries on despite the problem (asks again if it comes back) */
+    @Synchronized fun ack(key: String) {
+        val a = current
+        logic.ack(key)
+        log("alarm", "OK'd by the user: " + (a?.takeIf { it.key == key }?.title ?: key))
+        if (current?.key == key) { current = null; alarm(null) }
+        saveMem()
+        tick()
+    }
+
+    @Volatile private var current: Alarm? = null
 
     @Synchronized fun setTarget(t: Double) { cfg.put("target", t.coerceIn(8.0, MAX_TARGET)); save() }
 
@@ -150,6 +168,12 @@ class Thermostat(
         dcs.setActive?.let { enabled = it; cfg.put("enabled", it); save() }
         status = dcs.status
         dcs.alert?.let(alert)
+        if (dcs.alarm != current) {
+            val fresh = dcs.alarm != null && (dcs.alarm.key != current?.key || dcs.alarm.title != current?.title)
+            current = dcs.alarm
+            if (fresh) log("alarm", dcs.alarm!!.title)
+            alarm(dcs.alarm)
+        }
         val room = r.roomRaw?.let { ThermoLogic.fmt(it + settings().offset) + if (phoneSource) "° (phone)" else "°" } ?: "?"
         when (dcs.act) {
             Act.START -> {

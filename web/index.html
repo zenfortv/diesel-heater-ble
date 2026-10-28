@@ -188,6 +188,8 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       </div>
     </div>
 
+    <div class="card errcard" id="alarmCard" hidden><b id="alarmTitle"></b><p id="alarmTxt" class="mute"></p>
+      <button class="primary" id="alarmOk" style="width:100%">OK, keep working</button></div>
     <div class="card errcard" id="errCard" hidden><b id="errTitle"></b><p id="errTip" class="mute"></p></div>
 
     <div class="card">
@@ -285,7 +287,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
         <label class="f">Stop when above target by<select id="smAbove"></select></label>
         <label class="f">Run at least<select id="smMinOn"></select></label>
         <label class="f">Rest at least<select id="smMinOff"></select></label>
-        <label class="f">Don't start if battery under<select id="smVolt"></select></label>
+        <label class="f">Battery alarm under<select id="smVolt"></select></label>
         <label class="f" id="smOffsetL">Heater sensor correction<select id="smOffset"></select></label>
         <label class="f" id="smPhoneOffL">Extra phone correction<select id="smPhoneOff"></select></label>
       </div>
@@ -420,17 +422,14 @@ const store = {
 };
 
 const STEP = {0: "Off", 1: "Self-test", 2: "Igniting", 3: "Heating", 4: "Cooling down", 6: "Ventilating"};
+// fault codes as on the heater panel (E01...E08), same table as FAULTS in android/.../ThermoLogic.kt
 const ERR = {
-  1: ["Ignition failed", "The heater could not light. Check the fuel level and that the fuel line has no air, then try again. Keeps happening: glow plug or a dirty burner."],
-  2: ["Flame went out", "Usually an empty tank, air in the fuel line or a clogged fuel filter."],
-  3: ["Battery voltage out of range", "Supply too low or too high: charge the battery and check the cables."],
-  4: ["Outlet sensor fault", "The hot-air temperature sensor is faulty or unplugged."],
-  5: ["Inlet sensor fault", "The intake temperature sensor is faulty or unplugged."],
-  6: ["Fuel pump fault", "The pump is not working: check its plug and wiring."],
-  7: ["Fan fault", "The blower is blocked or the motor is failing."],
-  8: ["Glow plug fault", "The glow plug is broken or not connected."],
-  9: ["Overheating", "Hot air can't get out: make sure the outlet and the intake are not blocked."],
-  10: ["Overheat sensor fault", "The overheat sensor is faulty or unplugged."],
+  1: ["Abnormal voltage", "Battery voltage too low or too high: charge the battery, check the cables and connections."],
+  2: ["Ignition plug fault", "The glow (ignition) plug isn't working: check its plug and wiring, or replace it."],
+  4: ["Oil pump fault", "The fuel pump isn't working: check its plug and wiring."],
+  5: ["High temperature protection", "Overheated: make sure the hot-air outlet and the intake are not blocked, let it cool down."],
+  6: ["Fan fault", "The blower is blocked or its motor is failing."],
+  8: ["Lack of fuel", "Fill the tank. Then press and hold the DOWN arrow button on the heater panel to pump fuel automatically (primes the line); press the POWER button to stop pumping."],
 };
 
 /* ---------------- heater protocol (AirHeaterBLE family) ----------------
@@ -893,10 +892,14 @@ function render() {
   // stats + error
   $("volt").textContent = h.supply_voltage != null ? h.supply_voltage.toFixed(1) : "--";
   $("case").textContent = h.case_temperature != null ? Math.round(h.case_temperature) : "--";
-  $("errShort").textContent = h.error_code == null ? "--" : h.error_code ? "E" + h.error_code : "none";
+  $("errShort").textContent = h.error_code == null ? "--" : h.error_code ? "E" + String(h.error_code).padStart(2, "0") : "none";
   const er = h.error_code ? ERR[h.error_code] || [`Error E${h.error_code}`, "Check the heater display and manual."] : null;
   $("errCard").hidden = !er || !conn;
-  if (er) { $("errTitle").textContent = `E${h.error_code} · ${er[0]}`; $("errTip").textContent = er[1]; }
+  if (er) { $("errTitle").textContent = `E${String(h.error_code).padStart(2, "0")} · ${er[0]}`; $("errTip").textContent = er[1]; }
+  // a problem the app waits on: "OK, keep working" always lets it carry on (the fault card above is then redundant)
+  const al = h.smart?.alarm;
+  $("alarmCard").hidden = !al;
+  if (al) { $("alarmTitle").textContent = al.title; $("alarmTxt").textContent = al.text; $("alarmOk").dataset.key = al.key; $("errCard").hidden = true; }
   // built-in timer readback
   const hasT = h.timer_start_min != null;
   $("btRead").textContent = !conn ? "" : hasT ? `Heater now: ${h.timer_enabled ? "ON" : "off"} · starts ${hm(h.timer_start_min)} · runs ${h.timer_duration_min} min`
@@ -1210,7 +1213,7 @@ setInterval(() => { if (MODE) renderSched(); }, 30000);  // keep countdowns fres
 /* ---------- smart thermostat (Android app / box only: needs the always-running service) ---------- */
 const SM = {smBelow: ["below", [0.5, 1, 1.5, 2, 3], v => `${v}°`], smAbove: ["above", [0.5, 1, 1.5, 2, 3], v => `${v}°`],
   smMinOn: ["min_on_min", [10, 15, 20, 30, 45, 60], v => `${v} min`], smMinOff: ["min_off_min", [5, 10, 15, 20, 30], v => `${v} min`],
-  smVolt: ["min_volt", [0, 11.5, 11.8, 12, 12.2, 12.4], v => v ? `${v.toFixed(1)} V` : "no limit"],
+  smVolt: ["min_volt", [0, 11, 11.5, 11.8, 12, 12.2, 12.4], v => v ? `${v.toFixed(1)} V` : "no alarm"],
   smOffset: ["offset", [-3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3], v => v ? `${v > 0 ? "+" : ""}${v}°` : "none"],
   smPhoneOff: ["phone_offset", Array.from({length: 21}, (_, i) => i / 2 - 5), v => v ? `${v > 0 ? "+" : ""}${v}°` : "none"]};  // -5..+5 by 0.5, on top of the learned one
 for (const [id, [, vals, f]] of Object.entries(SM)) $(id).innerHTML = vals.map(v => `<option value="${v}">${f(v)}</option>`).join("");
@@ -1338,6 +1341,12 @@ $("rawCard").addEventListener("toggle", e => { if (e.target.open) loadRaw(); });
 $("rawLoad").onclick = loadRaw;
 $("rawCopy").onclick = async () => {
   try { await navigator.clipboard.writeText($("rawList").textContent); toast("Copied"); } catch { toast("Copy failed: select the text by hand", true); }
+};
+
+$("alarmOk").onclick = async () => {
+  const key = $("alarmOk").dataset.key; if (!key) return;
+  $("alarmCard").hidden = true;
+  await act(api("api/ack", "POST", {key}), "OK · keeps working"); load();
 };
 
 let autoBusy = false;

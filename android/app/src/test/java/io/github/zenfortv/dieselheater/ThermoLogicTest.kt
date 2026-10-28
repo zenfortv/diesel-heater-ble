@@ -76,9 +76,9 @@ class ThermoLogicTest {
         t += 8 * 60; l.step(s, true, reading(15.0), t)
         assertEquals(1, l.failedStarts)
         t += 11 * 60; assertEquals(Act.START, l.step(s, true, reading(15.0), t).act)
-        t += 8 * 60; val d = l.step(s, true, reading(15.0), t)
-        assertNotNull(d.alert)
+        t += 8 * 60; l.step(s, true, reading(15.0), t)
         assertNotNull(l.lockout)
+        assertEquals("lockout", l.step(s, true, reading(15.0), t + 60).alarm?.key)
         t += 60 * 60; assertEquals(Act.NONE, l.step(s, true, reading(10.0), t).act)
         l.resetLockout()
         t += 60; assertEquals(Act.START, l.step(s, true, reading(10.0), t).act)
@@ -209,10 +209,10 @@ class ThermoLogicTest {
 
     @Test fun phoneSensorStartsAHeaterThatSendsNoReadingWhileOff() {
         val l = idle()
-        // heater off sends no voltage either: with the phone the battery limit can't be checked -> no start
-        assertEquals(Act.NONE, l.step(s, true, phoneReading(18.0), 10_000.0).act)
-        // with the battery limit off (the user's choice) the phone reading is enough
-        assertEquals(Act.START, l.step(s.copy(minVolt = 0.0), true, phoneReading(18.0), 10_005.0).act)
+        // heater off sends no voltage either: unknown voltage is not a problem, the phone reading is enough
+        val d = l.step(s, true, phoneReading(18.0), 10_000.0)
+        assertEquals(Act.START, d.act)
+        assertTrue(d.status.contains("voltage unknown"))
     }
 
     @Test fun phoneAndHeaterDisagreeingStopsAndLocks() {
@@ -224,7 +224,7 @@ class ThermoLogicTest {
         assertNull(l.lockout)
         t += 60; val d = l.step(noLimit, true, phoneReading(9.0, on = true, heater = 21.0), t)  // phone taken outside
         assertEquals(Act.STOP, d.act)
-        assertNotNull(d.alert)
+        assertEquals("lockout", d.alarm?.key)
         t += 30; l.step(noLimit, true, phoneReading(9.0), t)
         t += 30 * 60; assertEquals(Act.NONE, l.step(noLimit, true, phoneReading(5.0), t).act)  // locked: no restart
     }
@@ -240,5 +240,100 @@ class ThermoLogicTest {
         val l = idle()
         // reads 21.5 but the user measured 2° less: 19.5 is below 20 -> start
         assertEquals(Act.START, l.step(s.copy(offset = -2.0), true, reading(21.5), 10_000.0).act)
+    }
+
+    /* ---------- alarms: every problem can be answered "OK, keep working" ---------- */
+
+    @Test fun lowBatteryAsksThenStartsOnOk() {
+        val l = idle()
+        val d = l.step(s, true, reading(15.0, volt = 10.2), 10_000.0)
+        assertEquals(Act.NONE, d.act)
+        assertEquals("volt_low", d.alarm?.key)
+        l.ack("volt_low")
+        assertEquals(Act.START, l.step(s, true, reading(15.0, volt = 10.2), 10_005.0).act)
+    }
+
+    @Test fun okIsAskedAgainNextTime() {
+        val l = idle()
+        l.step(s, true, reading(15.0, volt = 10.2), 10_000.0); l.ack("volt_low")
+        l.step(s, true, reading(15.0, volt = 10.2), 10_005.0)                       // START
+        l.step(s, true, reading(16.0, on = true, volt = 12.5), 10_020.0)            // runs: the problem is gone
+        l.expectOffUntil = 20_000.0
+        l.step(s, true, reading(22.5, volt = 12.0), 11_500.0)                       // our stop
+        assertEquals("volt_low", l.step(s, true, reading(15.0, volt = 10.2), 13_000.0).alarm?.key)
+    }
+
+    @Test fun lowBatteryWhileRunningRingsAfterAMinuteButNeverStops() {
+        val l = idle()
+        var t = 10_000.0
+        l.step(s, true, reading(19.0), t)
+        t += 10; l.step(s, true, reading(19.0, on = true), t)
+        t += 10; var d = l.step(s, true, reading(19.5, on = true, volt = 10.2), t)
+        assertNull(d.alarm)                                                         // one odd reading: no alarm
+        t += 70; d = l.step(s, true, reading(19.5, on = true, volt = 10.2), t)
+        assertEquals("volt_run", d.alarm?.key)
+        assertEquals(Act.NONE, d.act)
+        l.ack("volt_run")
+        t += 10; assertNull(l.step(s, true, reading(19.6, on = true, volt = 10.2), t).alarm)
+    }
+
+    @Test fun lowBatteryWhileRunningAlsoInManualMode() {
+        val l = idle()
+        l.step(s, false, reading(19.0, on = true, volt = 10.5), 10_000.0)
+        assertEquals("volt_run", l.step(s, false, reading(19.0, on = true, volt = 10.5), 10_100.0).alarm?.key)
+    }
+
+    @Test fun faultAsksThenRetriesOnOk() {
+        val l = idle()
+        val d = l.step(s, true, reading(15.0, error = 8), 10_000.0)
+        assertEquals(Act.NONE, d.act)
+        assertEquals("fault", d.alarm?.key)
+        assertTrue(d.alarm!!.title.contains("Lack of fuel"))
+        assertTrue(d.alarm!!.text.contains("DOWN arrow"))
+        l.ack("fault")
+        assertEquals(Act.START, l.step(s, true, reading(15.0, error = 8), 10_005.0).act)
+    }
+
+    @Test fun lockoutOkKeepsWorking() {
+        val l = idle()
+        var t = 10_000.0
+        l.step(s, true, reading(15.0), t)
+        t += 8 * 60; l.step(s, true, reading(15.0), t)
+        t += 11 * 60; l.step(s, true, reading(15.0), t)
+        t += 8 * 60; l.step(s, true, reading(15.0), t)
+        assertNotNull(l.lockout)
+        l.ack("lockout")
+        assertNull(l.lockout)
+        t += 11 * 60; assertEquals(Act.START, l.step(s, true, reading(15.0), t).act)
+    }
+
+    @Test fun sensorsDisagreeingOkMutesTheCheckUntilTheyAgree() {
+        val noLimit = s.copy(minVolt = 0.0)
+        val l = ThermoLogic().also { it.step(noLimit, true, phoneReading(25.0), 0.0) }
+        var t = 10_000.0
+        l.step(noLimit, true, phoneReading(18.0), t)
+        t += 10; l.step(noLimit, true, phoneReading(9.0, on = true, heater = 21.0), t)   // STOP + lockout
+        l.ack("lockout")
+        t += 10; assertEquals(Act.NONE, l.step(noLimit, true, phoneReading(9.0, on = true, heater = 21.0), t).act)  // keeps heating
+        t += 10; l.step(noLimit, true, phoneReading(19.0, on = true, heater = 20.0), t)  // agree again
+        t += 10; assertEquals(Act.STOP, l.step(noLimit, true, phoneReading(9.0, on = true, heater = 21.0), t).act)  // checked again
+    }
+
+    @Test fun ceilingOkLetsItKeepHeating() {
+        val hot = s.copy(target = 30.0, above = 8.0)
+        val l = idle()
+        l.step(hot, true, reading(19.0), 10_000.0)
+        l.step(hot, true, reading(19.0, on = true), 10_010.0)
+        val d = l.step(hot, true, reading(35.5, on = true), 10_070.0)
+        assertEquals(Act.STOP, d.act); assertEquals("ceiling", d.alarm?.key)
+        l.ack("ceiling")
+        assertEquals(Act.NONE, l.step(hot, true, reading(35.5, on = true), 10_080.0).act)
+    }
+
+    @Test fun okSurvivesARestart() {
+        val l = idle()
+        l.step(s, true, reading(15.0, volt = 10.2), 10_000.0); l.ack("volt_low")
+        val after = ThermoLogic().also { it.restore(l.export()) }
+        assertTrue("volt_low" in after.acked)
     }
 }

@@ -53,7 +53,7 @@ class HeaterService : Service() {
 
         heater = HeaterLink(this) { onState() }
         sched = Scheduler(File(filesDir, "schedules.json"), heater)
-        thermo = Thermostat(this, heater, { action, result -> sched.log(action, "thermostat", result) }, ::alert, ::event)
+        thermo = Thermostat(this, heater, { action, result -> sched.log(action, "thermostat", result) }, ::alert, ::event, ::alarmNote)
         sched.thermostat = thermo
         thermo.phone.startWeather()
         sched.alert = ::alert
@@ -76,6 +76,7 @@ class HeaterService : Service() {
         }
         if (intent?.action == ACTION_RELEASE) release(RELEASE_S)
         if (intent?.action == ACTION_RECONNECT) { releaseUntil = 0.0; heater.setPaused(false) }
+        if (intent?.action == ACTION_ACK) intent.getStringExtra("key")?.let { k -> ticker.execute { try { thermo.ack(k) } catch (_: Exception) {} } }
         return START_STICKY
     }
 
@@ -131,6 +132,25 @@ class HeaterService : Service() {
                 .setContentIntent(open).setAutoCancel(true).build())
     }
 
+    /* alarm: one notification with "OK, keep working", replaced when the alarm changes, removed when it's gone */
+    private var alarmShown: Alarm? = null
+    private fun alarmNote(a: Alarm?) {
+        val nm = getSystemService(NotificationManager::class.java)
+        if (a == null) { nm.cancel(ALARM_ID); alarmShown = null; onState(); return }
+        val same = alarmShown?.key == a.key && alarmShown?.title == a.title
+        alarmShown = a
+        onState()
+        if (same) return
+        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val ok = PendingIntent.getService(this, 3, Intent(this, HeaterService::class.java).setAction(ACTION_ACK).putExtra("key", a.key),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        sched.log("alert", "alarm", a.title)
+        nm.notify(ALARM_ID, Notification.Builder(this, ALERTS).setSmallIcon(R.drawable.ic_flame).setContentTitle(a.title)
+            .setContentText(a.text).setStyle(Notification.BigTextStyle().bigText(a.text))
+            .setContentIntent(open).setOnlyAlertOnce(false)
+            .addAction(Notification.Action.Builder(null, "OK, keep working", ok).build()).build())
+    }
+
     private var eventId = 0
     private fun event(msg: String) {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
@@ -180,6 +200,7 @@ class HeaterService : Service() {
                 ok(if (thermo.enabled && !h.running) true else h.setTemperature(b.optDouble("temperature")))
             }
             "smart" -> { thermo.configure(b); onState(); thermo.state() }
+            "ack" -> { thermo.ack(b.getString("key")); onState(); ok(true) }
             "sync_clock" -> ok(h.syncClock(true))
             "set_clock" -> ok(h.setClock(b.getString("time")))
             "pause" -> { releaseUntil = 0.0; h.setPaused(b.optBoolean("paused")); ok(true) }  // from the page: until switched back
@@ -277,6 +298,8 @@ class HeaterService : Service() {
         const val ACTION_QUIT = "quit"
         const val ACTION_RELEASE = "release"
         const val ACTION_RECONNECT = "reconnect"
+        const val ACTION_ACK = "ack"
+        const val ALARM_ID = 50
         const val RELEASE_S = 600.0
         val STEP = mapOf(0 to "Off", 1 to "Self-test", 2 to "Igniting", 3 to "Heating", 4 to "Cooling down", 6 to "Ventilating")
         @Volatile var instance: HeaterService? = null
