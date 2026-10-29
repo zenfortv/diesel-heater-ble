@@ -213,15 +213,19 @@ class ThermoLogic {
         fun fmt(v: Double): String { val r = (v * 10).roundToInt() / 10.0; return if (r == r.toInt().toDouble()) r.toInt().toString() else r.toString() }
         private fun mins(s: Double) = (s / 60).roundToInt().coerceAtLeast(1)
 
-        /** fault codes as on the user's heater panel (E01...E08), same table as ERR in web/index.html */
+        /** fault codes: the official AirHeaterBLE app's table for this heater family (same as ERR in web/index.html) */
         val FAULTS = mapOf(
             1 to ("Abnormal voltage" to "Battery voltage too low or too high: charge the battery, check the cables and connections."),
-            2 to ("Ignition plug fault" to "The glow (ignition) plug isn't working: check its plug and wiring, or replace it."),
+            2 to ("Ignition plug fault / low battery" to "Your manual says ignition plug, the official app says low battery: check the battery voltage and the glow (ignition) plug wiring."),
+            3 to ("Ignition plug fault" to "The glow (ignition) plug isn't working: check its plug and wiring, or replace it."),
             4 to ("Oil pump fault" to "The fuel pump isn't working: check its plug and wiring."),
             5 to ("High temperature protection" to "Overheated: make sure the hot-air outlet and the intake are not blocked, let it cool down."),
             6 to ("Fan fault" to "The blower is blocked or its motor is failing."),
-            8 to ("Lack of fuel" to "Fill the tank. Then press and hold the DOWN arrow button on the heater panel to pump fuel automatically " +
-                "(primes the line); press the POWER button to stop pumping."),
+            7 to ("Intake air sensor fault" to "The intake (room) temperature sensor is faulty or unplugged: check its connector."),
+            8 to ("Lack of fuel" to "Fill the tank. Then press and hold the DOWN arrow button on the heater panel to pump fuel automatically (primes the line); press the POWER button to stop pumping."),
+            9 to ("Overheat sensor fault" to "The overheat protection sensor is faulty or unplugged: check its connector."),
+            10 to ("Second start failed" to "It didn't light twice: check the fuel (prime the line), the glow plug and that the intake and exhaust are free."),
+            11 to ("CO over limit" to "DANGER: carbon monoxide. Ventilate now, get out if anyone feels dizzy or sick. Check the exhaust pipe and the burner seals for leaks before running it again."),
         )
         fun faultAlarm(code: Int): Alarm {
             val (name, tip) = FAULTS[code] ?: ("Heater fault" to "Check the heater display and its manual.")
