@@ -147,6 +147,9 @@ class PhoneSensor(ctx: Context) {
     } catch (_: Exception) {}
 
     /* ---------- outdoor temperature ---------- */
+    /** the outdoor temperature if it's recent (3 h), for the heating algorithm */
+    fun outdoorTemp(): Double? = outdoor?.takeIf { it.has("temp") && nowS() - it.optDouble("at", 0.0) < 3 * 3600 }?.getDouble("temp")
+
     @Volatile var outdoor: JSONObject? = try { JSONObject(prefs.getString("outdoor", "") ?: "") } catch (_: Exception) { null }
         private set
     private val net = Executors.newSingleThreadScheduledExecutor()
@@ -167,7 +170,7 @@ class PhoneSensor(ctx: Context) {
                 val cur = JSONObject(c.inputStream.bufferedReader().use { it.readText() }).getJSONObject("current")
                 if (cur.isNull("temperature_2m")) continue
                 val code = cur.optInt("weather_code", -1)
-                val o = JSONObject().put("temp", cur.getDouble("temperature_2m")).put("code", code).put("text", weatherText(code))
+                val o = JSONObject().put("temp", cur.getDouble("temperature_2m")).put("code", code).put("text", weatherText(code)).put("at", nowS())
                     .put("day", cur.optInt("is_day", 1) == 1).put("time", cur.optString("time")).put("at", nowS().toLong())
                     .put("src", label).put("lat", lat).put("lon", lon)
                 outdoor = o; prefs.edit().putString("outdoor", o.toString()).apply()

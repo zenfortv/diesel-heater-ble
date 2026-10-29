@@ -178,13 +178,14 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       </div>
       <button class="power primary" id="powerBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3v8M6.3 6.8a8 8 0 1 0 11.4 0"/></svg><span id="powerTxt">Turn on</span></button>
       <div class="autoBox" id="autoHome" hidden>
-        <div class="row between"><span><b>Auto thermostat</b><br><span class="mute">switches the heater on and off by itself to keep the target</span></span>
+        <div class="row between"><span><b>Auto thermostat</b><br><span class="mute">reaches and holds the target by itself (levels, warm-up, sleep times)</span></span>
           <label class="sw"><input type="checkbox" id="autoSw"><i></i></label></div>
         <div class="seg" id="srcSeg"><button id="srcHeater">Heater sensor</button><button id="srcPhone">This phone</button></div>
         <p class="mute" id="srcTxt" style="margin:0"></p>
         <div class="row" id="calRow" hidden><input type="number" id="calReal" step="0.5" inputmode="decimal" placeholder="real °C" style="width:6.5em">
           <button id="calBtn">Save real temperature</button></div>
         <p id="smHome"></p>
+        <p class="mute" id="smHome2" style="margin:0"></p>
       </div>
     </div>
 
@@ -265,8 +266,8 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 
     <div class="card" id="smartCard" hidden>
       <h2>Auto thermostat settings</h2>
-      <p class="mute">Switch it on or off on Home. It stops the burner above the target and starts it again below, instead of
-        just turning it down like the heater's own thermostat.</p>
+      <p class="mute">Switch it on or off on Home. It drives the heater's power level to reach and hold the target, and stops the
+        burner only when the room stays too warm at the lowest level.</p>
       <label class="f">Room temperature from<select id="smSrc">
         <option value="heater">Heater sensor (some heaters send none while off)</option>
         <option value="phone">This phone (leave it in the van, still)</option></select></label>
@@ -282,6 +283,39 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
         <div class="grid2"><label class="f">Weather place: latitude<input type="number" id="smLat" step="0.0001" inputmode="decimal"></label>
           <label class="f">longitude<input type="number" id="smLon" step="0.0001" inputmode="decimal"></label></div>
       </div>
+      <h3 style="margin:16px 0 4px;font-size:15px">Heating</h3>
+      <label class="f">How it heats<select id="smStyle">
+        <option value="auto">Auto · the app decides from the outside temperature</option>
+        <option value="custom">Custom · my own numbers</option>
+        <option value="classic">Classic · full on / off (heater's own thermostat)</option></select></label>
+      <p class="mute" id="smStyleTxt"></p>
+      <div class="grid2" id="smPlan">
+        <label class="f">Cold start: warm-up if under<select id="smWarmBelow"></select></label>
+        <label class="f">Warm-up level<select id="smBoostLvl"></select></label>
+        <label class="f">Warm-up until<select id="smBoostUntil"></select></label>
+        <label class="f">Then level (to the target)<select id="smApproach"></select></label>
+        <label class="f">At the target: level<select id="smHold"></select></label>
+        <label class="f">Cold inside: restart soon under<select id="smColdRestart"></select></label>
+      </div>
+      <h3 style="margin:16px 0 4px;font-size:15px">Sleep and wake-up</h3>
+      <div class="row between"><span>Sleep / Day targets<br><span class="mute">the target follows your sleep and wake-up times</span></span>
+        <label class="sw"><input type="checkbox" id="smSleep"><i></i></label></div>
+      <div class="grid2" id="smSleepBox">
+        <label class="f">I go to sleep at<input type="time" id="smSleepAt"></label>
+        <label class="f">I wake up at<input type="time" id="smWakeAt"></label>
+        <label class="f">Sleep target<select id="smNight"></select></label>
+        <label class="f">Day target<select id="smDay"></select></label>
+      </div>
+      <p class="mute" id="smSleepTxt">Defaults from health guidance: the WHO asks for at least 18° in winter, 18–20° is best for sleeping,
+        20–21° for living. A van's cold walls make the air feel colder, so Sleep 19° and Day 21°. Change them as you like;
+        the − / + on Home changes the one in use now.</p>
+      <h3 style="margin:16px 0 4px;font-size:15px">Fuel estimate</h3>
+      <div class="grid2">
+        <label class="f">Pump at level 1<select id="smHzMin"></select></label>
+        <label class="f">Pump at level 10<select id="smHzMax"></select></label>
+      </div>
+      <p class="mute" id="smFuelTxt"></p>
+      <h3 style="margin:16px 0 4px;font-size:15px">Limits</h3>
       <div class="grid2" id="smOpts">
         <label class="f">Start when below target by<select id="smBelow"></select></label>
         <label class="f">Stop when above target by<select id="smAbove"></select></label>
@@ -859,7 +893,7 @@ function render() {
   $("roomLbl").textContent = byPhone ? "in the room · phone" + (h.smart.phone?.readings ? "" : " (not calibrated yet)")
     : h.sensors_blank && conn ? "heater sends no reading while off" : "in the room";
   $("stateTxt").textContent = !MODE ? "Not connected" : btOff ? "Bluetooth is off" : !conn ? (h.paused ? "Released" : "Searching for heater…") : (STEP[step] ?? (on ? "On" : "Off"));
-  if (!editing && sm) { setMode = "temp"; setVal = sm.target; }
+  if (!editing && sm) { setMode = "temp"; setVal = sm.target_now ?? sm.target; }
   else if (!editing) {
     if (h.running_mode === 2) { setMode = "temp"; setVal = h.set_temp; }
     else if (h.running_mode === 1) { setMode = "level"; setVal = h.set_level; }
@@ -874,6 +908,10 @@ function render() {
   if (!autoBusy) $("autoSw").checked = !!sm;
   $("smHome").hidden = !sm;
   $("smHome").textContent = sm ? (conn ? sm.status || "…" : "Heater not connected") : "";
+  $("smHome2").hidden = !sm;
+  if (sm) $("smHome2").textContent = [sm.sleep_mode ? (sm.sleeping ? `🌙 Sleep · ${sm.night_target}° until ${sm.wake_at}` : `☀️ Day · ${sm.day_target}° until ${sm.sleep_at}`) : "",
+    {auto: "Auto heating", custom: "Custom heating", classic: "Classic on/off"}[sm.style || "auto"],
+    sm.fuel_today ? `≈ ${sm.fuel_today.toFixed(2)} L today` : ""].filter(Boolean).join(" · ");
   $("srcHeater").classList.toggle("on", !byPhone); $("srcPhone").classList.toggle("on", byPhone);
   const ph = h.smart?.phone_temp, hr = h.smart?.heater_room;
   $("calRow").hidden = !(h.smart && byPhone);
@@ -893,7 +931,7 @@ function render() {
   $("modeTemp").classList.toggle("on", setMode === "temp");
   $("modeLevel").classList.toggle("on", setMode === "level");
   $("setVal").textContent = setVal == null ? "--" : setVal + (setMode === "temp" ? "°" : "");
-  $("setHint").textContent = sm ? "target · heater switches on and off" : setMode === "temp" ? "target room temperature" : "power level 1 – 10";
+  $("setHint").textContent = sm ? (sm.sleep_mode ? (sm.sleeping ? "sleep target" : "day target") : "target") + (sm.style === "classic" ? " · heater switches on and off" : " · the app sets the level") : setMode === "temp" ? "target room temperature" : "power level 1 – 10";
   renderSmart(h.smart);
   // stats + error
   $("volt").textContent = h.supply_voltage != null ? h.supply_voltage.toFixed(1) : "--";
@@ -1222,7 +1260,18 @@ const SM = {smBelow: ["below", [0.5, 1, 1.5, 2, 3], v => `${v}°`], smAbove: ["a
   smMinOn: ["min_on_min", [10, 15, 20, 30, 45, 60], v => `${v} min`], smMinOff: ["min_off_min", [5, 10, 15, 20, 30], v => `${v} min`],
   smVolt: ["min_volt", [0, 11, 11.5, 11.8, 12, 12.2, 12.4], v => v ? `${v.toFixed(1)} V` : "no alarm"],
   smOffset: ["offset", [-3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3], v => v ? `${v > 0 ? "+" : ""}${v}°` : "none"],
-  smPhoneOff: ["phone_offset", Array.from({length: 21}, (_, i) => i / 2 - 5), v => v ? `${v > 0 ? "+" : ""}${v}°` : "none"]};  // -5..+5 by 0.5, on top of the learned one
+  smPhoneOff: ["phone_offset", Array.from({length: 21}, (_, i) => i / 2 - 5), v => v ? `${v > 0 ? "+" : ""}${v}°` : "none"],  // -5..+5 by 0.5, on top of the learned one
+  // heating plan (Custom), sleep / day targets, pump frequencies for the fuel estimate
+  smWarmBelow: ["warm_below", Array.from({length: 21}, (_, i) => i - 5), v => `${v}°`],
+  smBoostLvl: ["boost_level", [5, 6, 7, 8, 9, 10], v => `level ${v}`],
+  smBoostUntil: ["boost_until", [12, 13, 14, 15, 16, 17, 18, 19, 20], v => `${v}°`],
+  smApproach: ["approach_level", [1, 2, 3, 4, 5, 6], v => `level ${v}`],
+  smHold: ["hold_level", [1, 2, 3], v => `level ${v}`],
+  smColdRestart: ["cold_restart", [10, 12, 13, 14, 15, 16, 17, 18], v => `${v}°`],
+  smNight: ["night_target", Array.from({length: 19}, (_, i) => 15 + i / 2), v => `${v}°`],
+  smDay: ["day_target", Array.from({length: 19}, (_, i) => 17 + i / 2), v => `${v}°`],
+  smHzMin: ["pump_hz_min", [0.8, 1, 1.2, 1.4, 1.6, 1.8, 2, 2.5], v => `${v} Hz`],
+  smHzMax: ["pump_hz_max", [4, 4.5, 5, 5.5, 6, 6.5, 7], v => `${v} Hz`]};
 for (const [id, [, vals, f]] of Object.entries(SM)) $(id).innerHTML = vals.map(v => `<option value="${v}">${f(v)}</option>`).join("");
 let calLoaded = false;
 function renderSmart(sm) {
@@ -1240,16 +1289,36 @@ function renderSmart(sm) {
   $("smSensors").textContent = `Now: phone ${sm.phone_temp != null ? sm.phone_temp + "°" : "?"}` +
     ` · heater ${sm.heater_room != null ? sm.heater_room + "°" : "no reading (off)"}.` +
     (phone ? " The phone's battery reads warmer than the room when the screen is on, it charges or shares a hotspot: the app learns by how much from the real temperatures you type on Home. While the heater runs, the two sensors are compared: more than 8° apart stops it." : "");
-  $("smTxt").textContent = `With the target at ${sm.target}°: starts below ${+(sm.target - sm.below).toFixed(1)}°, stops above ${+(sm.target + sm.above).toFixed(1)}°.` +
-    (sm.enabled ? ` Now: ${sm.status}` : " Auto thermostat is off.");
+  const st = sm.style || "auto", tn = sm.target_now ?? sm.target, tu = sm.tuned;
+  $("smStyle").value = st;
+  $("smPlan").hidden = st !== "custom";
+  // in Auto the algorithm sets the restart margin and the rest: those two limits are its own
+  $("smBelow").parentElement.hidden = $("smMinOff").parentElement.hidden = st === "auto";
+  $("smStyleTxt").textContent = st === "classic" ? "Burner fully on below the target, off above it (the old way: more starts)."
+    : st === "custom" ? "Warm-up at full power from a cold start, then a low level up to the target, the lowest level at the target, off only when it's still too warm. If the room stops warming, the level goes up by one every 15 min."
+    : tu ? `Now (outside ${tu.outdoor != null ? tu.outdoor + "°" : "unknown"}): warm-up at level ${sm.boost_level} until ${tu.boost_until}°, then level ${tu.approach_level}, ` +
+      `level ${sm.hold_level} at the target; restarts ${tu.below}° under the target after at least ${tu.min_off_min} min, sooner if it drops under ${sm.cold_restart}°.` +
+      (tu.cold_session ? " Started cold: restarts sooner." : "") + " Colder outside = longer warm-up, stronger level, shorter rests." : "";
+  $("smSleep").checked = !!sm.sleep_mode;
+  $("smSleepBox").hidden = !sm.sleep_mode;
+  $("smSleepAt").value = sm.sleep_at || "22:30"; $("smWakeAt").value = sm.wake_at || "07:00";
+  $("smFuelTxt").textContent = `About ${(sm.fuel_today ?? 0).toFixed(2)} L today, ${(sm.fuel_total ?? 0).toFixed(1)} L in total (estimate from the levels; ` +
+    "a usual pump gives 0.022 ml per stroke. If your panel's engineering menu shows the pump Hz, set them here for a better estimate).";
+  $("smTxt").textContent = `With the target at ${tn}°: ` + (st === "classic" ? `starts below ${+(tn - sm.below).toFixed(1)}°, ` : "") +
+    `stops above ${+(tn + sm.above).toFixed(1)}°.` + (sm.enabled ? ` Now: ${sm.status}` : " Auto thermostat is off.");
 }
 function sendSmart() {
-  const b = {source: $("smSrc").value};
+  const b = {source: $("smSrc").value, style: $("smStyle").value};
   for (const [id, [k]] of Object.entries(SM)) b[k] = +$(id).value;
   act(api("api/smart", "POST", b), "Settings saved").then(() => { document.activeElement?.blur(); load(); });
 }
 Object.keys(SM).forEach(id => { $(id).onchange = sendSmart; });
 $("smSrc").onchange = sendSmart;
+$("smStyle").onchange = sendSmart;
+$("smSleep").onchange = e => act(api("api/smart", "POST", {sleep_mode: e.target.checked}), e.target.checked ? "Sleep / Day targets on" : "One target").then(load);
+for (const id of ["smSleepAt", "smWakeAt"]) $(id).onchange = () => {
+  if ($(id).value) act(api("api/smart", "POST", {sleep_at: $("smSleepAt").value, wake_at: $("smWakeAt").value}), "Times saved").then(load);
+};
 // quick source switch on Home: same setting as Heater tab > Auto thermostat settings
 for (const [id, v] of [["srcHeater", "heater"], ["srcPhone", "phone"]]) $(id).onclick = () => {
   $("smSrc").value = v;

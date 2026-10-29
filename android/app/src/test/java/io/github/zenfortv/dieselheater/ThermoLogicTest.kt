@@ -336,4 +336,64 @@ class ThermoLogicTest {
         val after = ThermoLogic().also { it.restore(l.export()) }
         assertTrue("volt_low" in after.acked)
     }
+
+    /* ---------- heating plans: levels instead of on/off ---------- */
+    private val ps = s.copy(plan = HeatPlan())
+
+    @Test fun coldStartWarmsUpAtFullPowerThenLowLevelThenHolds() {
+        val l = idle()
+        var t = 10_000.0
+        var d = l.step(ps, true, reading(5.0), t)
+        assertEquals(Act.START, d.act); assertEquals(10, d.level); assertTrue(l.coldSession)
+        t += 10; assertEquals(10, l.step(ps, true, reading(6.0, on = true), t).level)
+        t += 600; d = l.step(ps, true, reading(16.9, on = true), t)
+        assertEquals(10, d.level); assertTrue(d.status.startsWith("Warm-up"))
+        t += 60; assertEquals(2, l.step(ps, true, reading(17.1, on = true), t).level)        // warm-up done: level 2
+        t += 60; assertEquals(1, l.step(ps, true, reading(21.0, on = true), t).level)        // at the target: lowest level
+        t += 60; assertEquals(1, l.step(ps, true, reading(20.6, on = true), t).level)        // a little under: stays (no flapping)
+        t += 60; assertEquals(2, l.step(ps, true, reading(20.4, on = true), t).level)
+        t += 20 * 60; d = l.step(ps, true, reading(22.1, on = true), t)
+        assertEquals(Act.STOP, d.act); assertNull(d.level)
+    }
+
+    @Test fun warmStartGoesStraightToTheLowLevel() {
+        val d = idle().step(ps, true, reading(18.5), 10_000.0)
+        assertEquals(Act.START, d.act); assertEquals(2, d.level)
+    }
+
+    @Test fun roomNotWarmingStepsTheLevelUp() {
+        val l = idle()
+        var t = 10_000.0
+        l.step(ps, true, reading(18.0), t)
+        t += 10; assertEquals(2, l.step(ps, true, reading(18.0, on = true), t).level)
+        t += 16 * 60; assertEquals(3, l.step(ps, true, reading(18.1, on = true), t).level)
+        t += 16 * 60; assertEquals(4, l.step(ps, true, reading(18.2, on = true), t).level)
+        t += 60; assertEquals(4, l.step(ps, true, reading(18.6, on = true), t).level)        // warming again: keeps it
+    }
+
+    @Test fun coldInsideRestartsSoonerWithAWarmUp() {
+        val l = idle()
+        var t = 10_000.0
+        l.step(ps, true, reading(22.5, on = true), t)
+        t += 60; l.step(ps, true, reading(19.0), t)        // our stop
+        l.expectOffUntil = 0.0
+        t += 120; assertEquals(Act.NONE, l.step(ps, true, reading(15.5), t).act)
+        t += 70; val d = l.step(ps, true, reading(15.5), t)                                  // 3 min 10 s: cold inside, no 10 min rest
+        assertEquals(Act.START, d.act); assertEquals(10, d.level)
+    }
+
+    @Test fun autoTuneFollowsTheOutdoorTemperature() {
+        val cold = ThermoLogic.tuned(ps.copy(autoTune = true, outdoor = -8.0), false)
+        assertEquals(18.0, cold.plan!!.boostUntil, 0.0); assertEquals(3, cold.plan!!.approachLevel)
+        assertEquals(0.5, cold.below, 0.0); assertEquals(5.0, cold.minOffMin, 0.0)
+        val mild = ThermoLogic.tuned(ps.copy(autoTune = true, outdoor = 12.0), false)
+        assertEquals(16.0, mild.plan!!.boostUntil, 0.0); assertEquals(2, mild.plan!!.approachLevel)
+        assertEquals(1.5, mild.below, 0.0); assertEquals(10.0, mild.minOffMin, 0.0)
+        assertEquals(1.0, ThermoLogic.tuned(ps.copy(autoTune = true, outdoor = 12.0), true).below, 0.0)  // cold start: restarts sooner
+    }
+
+    @Test fun classicHasNoLevels() {
+        val d = idle().step(s, true, reading(15.0), 10_000.0)
+        assertEquals(Act.START, d.act); assertNull(d.level)
+    }
 }

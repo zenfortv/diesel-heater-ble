@@ -195,9 +195,12 @@ class HeaterService : Service() {
                     else -> { sched.setMaxRun(b.optDouble("hours", 0.0)); sched.snapshot() }
                 }
             "temperature" -> {
-                if (thermo.enabled) thermo.setTarget(b.optDouble("temperature"))
-                // auto thermostat with the burner off: the target is stored, the heater gets it at the next start
-                ok(if (thermo.enabled && !h.running) true else h.setTemperature(b.optDouble("temperature")))
+                if (thermo.enabled) {
+                    thermo.setTarget(b.optDouble("temperature"))
+                    // classic style while burning: the heater's own thermostat gets it too; a heating plan runs in level mode
+                    // (and the burner off: the target is stored, used at the next start)
+                    ok(if (thermo.classic && h.running) h.setTemperature(thermo.targetNow()) else { ticker.execute { thermo.tick() }; true })
+                } else ok(h.setTemperature(b.optDouble("temperature")))
             }
             "smart" -> { thermo.configure(b); onState(); thermo.state() }
             "ack" -> { thermo.ack(b.getString("key")); onState(); ok(true) }

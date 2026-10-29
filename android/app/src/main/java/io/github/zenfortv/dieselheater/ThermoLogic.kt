@@ -11,7 +11,26 @@ import kotlin.math.roundToInt
 data class ThermoSettings(
     val target: Double = 21.0, val below: Double = 1.0, val above: Double = 1.0,
     val minOnMin: Double = 20.0, val minOffMin: Double = 10.0, val minVolt: Double = 11.8, val offset: Double = 0.0,
+    /** how the burner is driven while it runs; null = classic: full on / off, the heater's own thermostat mode */
+    val plan: HeatPlan? = null,
+    /** the algorithm picks the plan's numbers, the restart margin and the rest from the outdoor temperature */
+    val autoTune: Boolean = false,
+    val outdoor: Double? = null,
 )
+
+/** Levels instead of on/off, like an Eberspächer: warm-up at full power from a cold start, a low level up to the
+ *  target, the lowest level at the target, and off only once it's still too warm at that level. Each start costs
+ *  the glow plug's battery and leaves carbon in the burner, so few starts and low levels save fuel and battery. */
+data class HeatPlan(
+    val warmBelow: Double = 9.0,      // starting at or below this is a cold start (a cold night: it cools fast)
+    val boostLevel: Int = 10,         // warm-up level
+    val boostUntil: Double = 17.0,    // warm-up ends here
+    val approachLevel: Int = 2,       // from the end of the warm-up to the target (raised by itself if the room stops warming)
+    val holdLevel: Int = 1,           // at the target, until target + above
+    val coldRestart: Double = 16.0,   // resting and the room is down to this: it's cold inside, restart soon with a warm-up
+)
+
+enum class Phase { WARMUP, APPROACH, HOLD }
 
 data class HeaterReading(
     val connected: Boolean, val ageS: Double, val burnerOn: Boolean, val step: Int, val error: Int,
@@ -27,7 +46,9 @@ data class Alarm(val key: String, val title: String, val text: String)
 
 /** setActive = false: the heater was stopped on its panel, so the auto thermostat switches itself off. */
 data class Decision(val act: Act, val status: String, val log: String?, val alert: String?, val setActive: Boolean?,
-                    val alarm: Alarm? = null)
+                    val alarm: Alarm? = null,
+                    /** the power level the burner should run at (plans only; null = leave it) */
+                    val level: Int? = null)
 
 class ThermoLogic {
     var wasOn: Boolean? = null
@@ -43,6 +64,15 @@ class ThermoLogic {
     private var lowVoltSince = 0.0
     private val starts = ArrayDeque<Double>()
     private val present = mutableSetOf<String>()
+    // heating plan
+    var phase: Phase? = null
+    var coldSession = false            // this session began with a cold start
+    var bump = 0                       // levels added because the room stopped warming
+    private var progressT = 0.0
+    private var progressRoom = 0.0
+
+    /** the Auto thermostat was switched on or off: a new session */
+    fun resetSession() { phase = null; coldSession = false; bump = 0 }
 
     fun resetLockout() { lockout = null; lockoutCross = false; failedStarts = 0 }
 
@@ -69,7 +99,9 @@ class ThermoLogic {
     }
 
     /** on = the Auto thermostat switch; eager = it was just switched on (starts below the target, not below the margin) */
-    fun step(s: ThermoSettings, on: Boolean, r: HeaterReading, now: Double, eager: Boolean = false): Decision {
+    fun step(s0: ThermoSettings, on: Boolean, r: HeaterReading, now: Double, eager: Boolean = false): Decision {
+        val s = if (s0.autoTune && s0.plan != null) tuned(s0, coldSession) else s0
+        val p = s.plan
         // nothing is decided on old or missing data
         if (!r.connected || r.ageS > STALE_S) return Decision(Act.NONE, "Heater not connected", null, null, null)
         var auto = on
@@ -120,14 +152,15 @@ class ThermoLogic {
                 "Check the battery. If it's really fine (the heater's reading can be off), tap OK and it keeps working.") else null
         if (r.burnerOn && lowVoltSince > 0) present += "volt_run"  // keep the OK while it stays low
 
+        var level: Int? = null
         fun d(act: Act, status: String, l: String? = log, a: Alarm? = alarm) =
-            Decision(act, status, l, alert, setActive, a ?: faultAlarm ?: runVoltAlarm)
+            Decision(act, status, l, alert, setActive, a ?: faultAlarm ?: runVoltAlarm, if (act == Act.STOP) null else level)
         fun done(dc: Decision): Decision {
             // an OK lasts while its problem lasts ("cross" is cleared only when the two sensors agree again)
             acked.retainAll(present + "cross")
             return dc
         }
-        if (!auto) return done(d(Act.NONE, ""))
+        if (!auto) { phase = null; return done(d(Act.NONE, "")) }
         // never act on a missing reading (some heaters send none while off): no start on a guessed temperature
         val room = r.roomRaw?.plus(s.offset) ?: return d(Act.NONE,
             if (r.burnerOn) "Waiting for the room temperature" else "No room temperature from the heater while it's off: can't decide when to start")
@@ -166,15 +199,25 @@ class ThermoLogic {
                 alarm = Alarm("ceiling", "Too hot: ${fmt(hot)}°", "Over the ${fmt(HARD_MAX_C)}° safety limit: stopped. Tap OK to let it keep heating anyway.")
                 return done(d(Act.STOP, "${fmt(hot)}°: over the ${fmt(HARD_MAX_C)}° safety limit", "safety stop: ${fmt(hot)}°C"))
             }
-            if (room < hi) return done(d(Act.NONE, "Heating · stops at ${fmt(hi)}° · ${fmt(hi - room)}° to go"))
+            if (p != null) {
+                level = planLevel(p, s.target, room, now)
+                if (room < hi) return done(d(Act.NONE, when (phase) {
+                    Phase.WARMUP -> "Warm-up · level $level until ${fmt(p.boostUntil)}° · ${fmt(p.boostUntil - room)}° to go"
+                    Phase.APPROACH -> "Heating · level $level · ${fmt(s.target - room)}° to the target"
+                    else -> "At the target · level $level · stops above ${fmt(hi)}°"
+                }))
+            } else if (room < hi) return done(d(Act.NONE, "Heating · stops at ${fmt(hi)}° · ${fmt(hi - room)}° to go"))
             val wait = s.minOnMin * 60 - (now - lastOn)
             if (wait > 0) return done(d(Act.NONE, "Warm · stops in ${mins(wait)} min (minimum run)"))
+            phase = null
             expectOffUntil = now + EXPECT_S
             return done(d(Act.STOP, "Stopping · restarts below ${fmt(lo)}°", "auto thermostat: room ${fmt(room)}°C"))
         }
 
         while (starts.isNotEmpty() && now - starts.first() > 3600) starts.removeFirst()
-        val rest = s.minOffMin * 60 - (now - lastOff)
+        // a plan restarts sooner when it's really cold inside (the heater still needs its few minutes of cool-down)
+        val coldInside = p != null && room <= p.coldRestart
+        val rest = (if (coldInside) minOf(s.minOffMin, COLD_REST_MIN) else s.minOffMin) * 60 - (now - lastOff)
         val cold = room <= (if (eager) s.target - 0.05 else lo)
         return done(when {
             lockout != null -> d(Act.NONE, "Stopped: $lockout · waiting for OK", a = lockAlarm)
@@ -182,7 +225,7 @@ class ThermoLogic {
             // from here the room is cold: problems that would stop a start ask for OK first
             r.error != 0 && "fault" !in acked -> d(Act.NONE, "Heater fault E${r.error.toString().padStart(2, '0')}: waiting for OK")
             startSentAt > 0 -> d(Act.NONE, "Starting…")
-            rest > 0 -> d(Act.NONE, "Resting · can start in ${mins(rest)} min")
+            rest > 0 -> d(Act.NONE, "Resting · can start in ${mins(rest)} min" + if (coldInside) " (cold inside)" else "")
             starts.size >= MAX_STARTS_PER_HOUR && held("starts") -> d(Act.NONE, "$MAX_STARTS_PER_HOUR starts in the last hour: waiting for OK",
                 a = Alarm("starts", "$MAX_STARTS_PER_HOUR starts in one hour", "The heater was started $MAX_STARTS_PER_HOUR times in the last hour. " +
                     "Tap OK to let it start again now, or it waits."))
@@ -193,14 +236,61 @@ class ThermoLogic {
                 expectOnUntil = now + EXPECT_S
                 startSentAt = now
                 starts.addLast(now)
-                d(Act.START, "Starting · target ${fmt(s.target)}°" + if (volt == null) " · battery voltage unknown" else "",
-                    "auto thermostat: room ${fmt(room)}°C")
+                if (p != null) {
+                    if (phase == null && room <= p.warmBelow) coldSession = true
+                    phase = null
+                    level = planLevel(p, s.target, room, now)
+                }
+                val how = when (phase) { Phase.WARMUP -> " · warm-up at level $level"; null -> ""; else -> " · level $level" }
+                d(Act.START, "Starting · target ${fmt(s.target)}°$how" + if (volt == null) " · battery voltage unknown" else "",
+                    "auto thermostat: room ${fmt(room)}°C" + how)
             }
         })
     }
 
+    /** the level for the plan's phase; phases change with a little hysteresis so the level doesn't flap */
+    private fun planLevel(p: HeatPlan, target: Double, room: Double, now: Double): Int {
+        val boostEnd = minOf(p.boostUntil, target - 0.5)
+        val next = when {
+            room < boostEnd && (phase == Phase.WARMUP || phase == null && room < p.coldRestart || room < p.coldRestart - 1) -> Phase.WARMUP
+            phase == Phase.HOLD && room >= target - 0.5 -> Phase.HOLD
+            room < target -> Phase.APPROACH
+            else -> Phase.HOLD
+        }
+        if (next != phase) { phase = next; bump = 0; progressT = now; progressRoom = room }
+        if (phase == Phase.APPROACH) {
+            // the room isn't warming at this level (very cold outside, door open...): one level up every 15 min
+            if (room >= progressRoom + 0.3) { progressRoom = room; progressT = now }
+            else if (now - progressT >= STUCK_S && p.approachLevel + bump < maxOf(p.approachLevel, minOf(p.boostLevel, MAX_BUMPED_LEVEL))) {
+                bump++; progressT = now; progressRoom = room
+            }
+        }
+        return when (phase) {
+            Phase.WARMUP -> p.boostLevel
+            Phase.APPROACH -> p.approachLevel + bump
+            else -> p.holdLevel
+        }.coerceIn(1, 10)
+    }
+
     companion object {
         const val STALE_S = 60.0
+        const val COLD_REST_MIN = 3.0
+        const val STUCK_S = 15 * 60.0
+        const val MAX_BUMPED_LEVEL = 6
+
+        /** "Auto" heating: the numbers come from the outdoor temperature. Colder outside = longer warm-up, a stronger
+         *  approach level, a smaller restart margin and a shorter rest (it gets cold again soon). A session that began
+         *  with a cold start restarts a little sooner still. */
+        fun tuned(s: ThermoSettings, coldSession: Boolean): ThermoSettings {
+            val out = s.outdoor
+            val p = s.plan ?: return s
+            val boostUntil = when { out == null -> 17.0; out <= -5 -> 18.0; out <= 5 -> 17.0; else -> 16.0 }
+            val approach = if (out != null && out <= 0) 3 else 2
+            var below = when { out == null -> 1.0; out <= 0 -> 0.5; out <= 8 -> 1.0; else -> 1.5 }
+            if (coldSession) below = maxOf(0.5, below - 0.5)
+            val rest = when { out == null -> 10.0; out <= 0 -> 5.0; out <= 8 -> 8.0; else -> 10.0 }
+            return s.copy(below = below, minOffMin = rest, plan = p.copy(boostUntil = boostUntil, approachLevel = approach))
+        }
         const val START_TIMEOUT_S = 420.0      // self-test + glow plug + ignition take 3-5 min
         const val MAX_FAILED_STARTS = 2         // unlit fuel must not pile up in the burner
         const val MAX_STARTS_PER_HOUR = 3
