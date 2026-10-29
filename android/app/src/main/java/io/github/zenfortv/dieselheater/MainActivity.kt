@@ -20,7 +20,10 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.graphics.Color
+import android.view.View
 import android.view.ViewGroup.LayoutParams
+import android.widget.FrameLayout
 import android.widget.ArrayAdapter
 import android.widget.CheckBox
 import android.widget.LinearLayout
@@ -32,6 +35,9 @@ import android.widget.Toast
  *  and a native heater picker (window.HeaterApp.pickHeater() from the page). */
 class MainActivity : Activity() {
     private lateinit var web: WebView
+    private var splash: WebView? = null
+    private val shownAt = System.currentTimeMillis()
+    @Volatile private var loadFailed = false
     private val prefs by lazy { getSharedPreferences("heater", MODE_PRIVATE) }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -46,13 +52,43 @@ class MainActivity : Activity() {
         web.settings.domStorageEnabled = true
         web.addJavascriptInterface(Bridge(), "HeaterApp")
         web.webViewClient = object : WebViewClient() {
-            // the service may still be starting: retry until its page answers
+            override fun onPageStarted(v: WebView, url: String?, f: android.graphics.Bitmap?) { loadFailed = false }
+            // the service may still be starting: retry until its page answers (the start-up screen hides the error page)
             override fun onReceivedError(v: WebView, req: WebResourceRequest, err: WebResourceError) {
-                if (req.isForMainFrame) v.postDelayed({ v.reload() }, 700)
+                if (req.isForMainFrame) { loadFailed = true; v.postDelayed({ v.reload() }, 700) }
+            }
+            override fun onPageFinished(v: WebView, url: String?) {
+                if (!loadFailed && url?.startsWith("http://127.0.0.1") == true) hideSplash()
             }
         }
-        setContentView(web)
+        // start-up screen (web/splash.html) over the page until the page has loaded
+        val sp = WebView(this)
+        sp.setBackgroundColor(bg)
+        sp.settings.javaScriptEnabled = false
+        sp.loadUrl("file:///android_asset/splash.html")
+        splash = sp
+        setContentView(FrameLayout(this).apply {
+            setBackgroundColor(bg)
+            addView(web, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            addView(sp, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        })
+        web.postDelayed({ hideSplash() }, 15000)  // never stuck on it
         if (prefs.getInt("terms", 0) >= TERMS_VERSION) proceed() else showTerms()
+    }
+
+    // at least 2.2 s so the drawing can finish, then fade out
+    private fun hideSplash(now: Boolean = false) {
+        val sp = splash ?: return
+        val wait = if (now) 0L else maxOf(0L, 2200L - (System.currentTimeMillis() - shownAt))
+        sp.postDelayed({
+            if (splash !== sp) return@postDelayed
+            splash = null
+            sp.animate().alpha(0f).setDuration(350).withEndAction {
+                sp.visibility = View.GONE
+                (sp.parent as? FrameLayout)?.removeView(sp)
+                sp.destroy()
+            }.start()
+        }, wait)
     }
 
     private fun proceed() {
@@ -69,10 +105,11 @@ class MainActivity : Activity() {
         val dp = resources.displayMetrics.density
         val pad = (20 * dp).toInt()
         val scroll = ScrollView(this).apply {
-            addView(TextView(this@MainActivity).apply { this.text = text; textSize = 14f; setPadding(pad, pad / 2, pad, pad) })
+            addView(TextView(this@MainActivity).apply { this.text = text; textSize = 14f; setTextColor(INK); setPadding(pad, pad / 2, pad, pad) })
         }
         val check = CheckBox(this).apply {
             this.text = "I have read and accept these terms. I use this app entirely at my own risk."
+            setTextColor(INK)
             setPadding(pad / 2, pad / 2, pad, pad / 2)
         }
         val box = LinearLayout(this).apply {
@@ -80,7 +117,7 @@ class MainActivity : Activity() {
             addView(scroll, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.55).toInt()))
             addView(check)
         }
-        val dlg = AlertDialog.Builder(this)
+        val dlg = AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
             .setTitle("Terms of use and safety")
             .setView(box)
             .setCancelable(false)
@@ -119,6 +156,7 @@ class MainActivity : Activity() {
 
     private fun ready() {
         if (!btAllowed()) {
+            hideSplash(now = true)
             web.loadData("""<body style="background:#120f0d;color:#f5eee8;font:17px system-ui;padding:24px">
                 <h2>Bluetooth permission needed</h2><p>The app needs "Nearby devices" to talk to the heater.
                 Allow it in Settings &gt; Apps &gt; Diesel Heater &gt; Permissions, then reopen the app.</p></body>""", "text/html", "utf-8")
@@ -191,7 +229,10 @@ class MainActivity : Activity() {
     @Deprecated("system back")
     override fun onBackPressed() { moveTaskToBack(true) }  // keep the page; the service runs anyway
 
-    companion object { const val TERMS_VERSION = 2 }  // raise when web/DISCLAIMER.md changes
+    companion object {
+        const val TERMS_VERSION = 2  // raise when web/DISCLAIMER.md changes
+        private val INK = Color.parseColor("#F5EEE8")
+    }
 
     inner class Bridge {
         @JavascriptInterface fun pickHeater() = runOnUiThread { this@MainActivity.pickHeater() }

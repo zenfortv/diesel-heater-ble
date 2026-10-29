@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Diesel Heater</title>
+<!-- start-up screen of the Android app (shown natively over the page while the service starts) -->
+<style>
+  :root { --bg: #120f0d; --ink: #f5eee8; --mute: #a39486; --fire: #ff8a33; --line: #e9d9c8; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; overflow: hidden; }
+  .heater { display: block; flex: none; width: 86vw; max-width: 380px; aspect-ratio: 330 / 230; height: auto; }
+  .heater .d { fill: none; stroke: var(--line); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+               stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 1.4s ease-out forwards; }
+  .heater .d2 { animation-delay: .25s; } .heater .d3 { animation-delay: .5s; } .heater .d4 { animation-delay: .75s; }
+  .heater .lead { fill: none; stroke: var(--mute); stroke-width: 1; stroke-dasharray: 3 4; opacity: 0; animation: fade .6s 1.1s forwards; }
+  .heater .flame { fill: var(--fire); opacity: 0; transform-origin: 128px 150px; animation: fade .5s 1.3s forwards, flick 1.2s 1.8s ease-in-out infinite alternate; }
+  .heater .glow { fill: var(--fire); opacity: 0; animation: glow 2.4s 1.4s ease-in-out infinite alternate; }
+  h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; opacity: 0; animation: fade .7s .9s forwards; }
+  .brand { display: flex; align-items: center; gap: 10px; opacity: 0; animation: fade .8s 1.5s forwards; }
+  .brand svg { width: 34px; height: 34px; }
+  .enso { fill: none; stroke: var(--fire); stroke-width: 5; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 1.1s 1.6s ease-in-out forwards; }
+  .word { font-size: 15px; font-weight: 800; letter-spacing: .32em; }
+  .word b { color: var(--fire); font-weight: 800; }
+  .word small { font-weight: 500; letter-spacing: .2em; color: var(--mute); font-size: 11px; margin-left: 2px; }
+  .by { font-size: 11px; letter-spacing: .25em; color: var(--mute); text-transform: uppercase; opacity: 0; animation: fade .8s 1.5s forwards; margin-bottom: -10px; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes fade { to { opacity: 1; } }
+  @keyframes glow { from { opacity: .05; } to { opacity: .2; } }
+  @keyframes flick { from { transform: scale(1, 1); } to { transform: scale(.9, 1.12); } }
+  @media (prefers-reduced-motion: reduce) { * { animation-duration: .01s !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; } }
+</style>
+</head>
+<body>
+  <!-- exploded line drawing of an air heater: cover lifted off, blower out on the left, intake grille on the right -->
+  <svg class="heater" viewBox="0 0 330 230" aria-label="Diesel heater drawing">
+    <ellipse class="glow" cx="130" cy="140" rx="40" ry="22"/>
+    <!-- cover, lifted -->
+    <path class="d" pathLength="1" d="M70 62 Q70 34 98 34 L236 34 Q266 34 266 62 L266 74 L70 74 Z"/>
+    <path class="d d2" pathLength="1" d="M128 44 L196 44 L196 58 L128 58 Z"/>
+    <path class="d d2" pathLength="1" d="M84 74 L84 66 M252 74 L252 66"/>
+    <!-- leader lines: where the parts go -->
+    <path class="lead" d="M104 76 L104 104 M168 76 L168 104 M232 76 L232 104 M78 140 L54 140 M268 140 L282 140"/>
+    <!-- housing -->
+    <path class="d" pathLength="1" d="M92 106 L250 106 Q268 106 268 124 L268 158 Q268 176 250 176 L92 176 Q76 176 76 160 L76 122 Q76 106 92 106 Z"/>
+    <!-- heat exchanger fins -->
+    <path class="d d3" pathLength="1" d="M168 110 L168 172 M178 110 L178 172 M188 110 L188 172 M198 110 L198 172 M208 110 L208 172 M218 110 L218 172 M228 110 L228 172 M238 110 L238 172 M248 112 L248 170"/>
+    <!-- burner tube -->
+    <path class="d d3" pathLength="1" d="M96 124 L156 124 Q162 124 162 130 L162 150 Q162 156 156 156 L96 156"/>
+    <path class="flame" d="M128 128c2 6 9 9 9 18a9 9 0 0 1-18 0c0-4 2-7 4-9 .5 3 2 5 4 6-1-6 0-11 1-15z"/>
+    <!-- blower, pulled out to the left -->
+    <circle class="d" pathLength="1" cx="34" cy="140" r="26"/>
+    <circle class="d d2" pathLength="1" cx="34" cy="140" r="6"/>
+    <path class="d d3" pathLength="1" d="M34 134 Q44 120 52 126 M40 140 Q56 146 52 156 M36 146 Q30 162 20 158 M28 142 Q14 140 14 130 M31 135 Q26 120 36 116"/>
+    <!-- intake grille, right -->
+    <circle class="d" pathLength="1" cx="304" cy="140" r="20"/>
+    <circle class="d d2" pathLength="1" cx="304" cy="140" r="13"/>
+    <circle class="d d3" pathLength="1" cx="304" cy="140" r="6"/>
+    <!-- glow plug, fuel line, exhaust -->
+    <path class="d d4" pathLength="1" d="M118 176 L118 194 M112 194 L124 194 L124 200 L112 200 Z"/>
+    <path class="d d4" pathLength="1" d="M150 176 L150 188 Q150 196 158 196 L196 196 Q204 196 204 204 L204 212"/>
+    <path class="d d4" pathLength="1" d="M226 176 L226 196 Q226 206 236 206 L262 206 M240 176 L240 190 Q240 196 246 196 L262 196"/>
+  </svg>
+
+  <h1>Diesel Heater</h1>
+  <div class="by">a</div>
+  <div class="brand">
+    <!-- ensō: the open zen circle -->
+    <svg viewBox="0 0 40 40" aria-hidden="true"><path class="enso" pathLength="1" d="M27 6.5 A15 15 0 1 0 34.5 17"/></svg>
+    <span class="word">ZEN<b>4</b>TV<small>PROD.</small></span>
+  </div>
+</body>
+</html>
