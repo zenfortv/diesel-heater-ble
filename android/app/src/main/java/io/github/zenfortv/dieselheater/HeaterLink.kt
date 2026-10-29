@@ -42,6 +42,12 @@ class HeaterLink(private val ctx: Context, private val onState: () -> Unit) {
         set(v) = prefs.edit().putInt("pin", v.coerceIn(0, 9999)).apply()
     @Volatile var paused = prefs.getBoolean("paused", false)
         private set
+    /** the heater's voltmeter can be off (this one reads 10.4 V on a 12.1 V battery): added to every reading */
+    var voltOffset: Double
+        get() = prefs.getFloat("volt_offset", 0f).toDouble()
+        set(v) = prefs.edit().putFloat("volt_offset", v.coerceIn(-3.0, 3.0).toFloat()).apply()
+    @Volatile var lastRawVolt: Double? = null
+        private set
 
     private val io = Executors.newSingleThreadExecutor()
     private val timer = Executors.newSingleThreadScheduledExecutor()
@@ -77,7 +83,7 @@ class HeaterLink(private val ctx: Context, private val onState: () -> Unit) {
         val bt = btOn()
         if (!bt) o.put("bt_off", true)
         o.put("connected", connected && !paused && bt).put("connecting", connecting).put("paused", paused)
-            .put("address", name.ifEmpty { address }).put("pin", pin).put("clock_sync", clock)
+            .put("address", name.ifEmpty { address }).put("pin", pin).put("clock_sync", clock).put("volt_offset", voltOffset)
         lastError?.let { o.put("last_error", it) }
         if (updated > 0) o.put("updated", updated)
         return o
@@ -237,6 +243,11 @@ class HeaterLink(private val ctx: Context, private val onState: () -> Unit) {
             while (raw.size > 40) raw.removeFirst()
         }
         val p = Protocol.parse(v) ?: return
+        if (p.has("supply_voltage")) {
+            val raw = p.getDouble("supply_voltage")
+            lastRawVolt = raw
+            p.put("supply_voltage_raw", raw).put("supply_voltage", Math.round((raw + voltOffset) * 10) / 10.0)
+        }
         frame = p; updated = nowS()
         replyLatch?.countDown()
         publish()

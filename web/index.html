@@ -203,9 +203,16 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
     </div>
 
     <div class="stats">
-      <div class="stat"><b id="volt">--</b><span>battery V</span></div>
-      <div class="stat"><b id="case">--</b><span>heater °C</span></div>
+      <div class="stat" id="voltTile"><b id="volt">--</b><span id="voltLbl">battery V</span></div>
+      <div class="stat"><b id="case">--</b><span>heater body °C</span></div>
       <div class="stat"><b id="errShort">--</b><span>fault</span></div>
+    </div>
+    <div class="card" id="voltCard" hidden>
+      <p class="mute" style="margin-top:0">The heater's voltmeter can be off. With the heater running, type what your voltmeter shows at the battery:
+        the app corrects every reading (and the battery alarm) by the difference.</p>
+      <div class="row"><input type="number" id="voltReal" step="0.1" inputmode="decimal" placeholder="real V" style="width:6.5em">
+        <button id="voltBtn">Match my voltmeter</button><button id="voltReset">No correction</button></div>
+      <p class="mute" id="voltTxt" style="margin-bottom:0"></p>
     </div>
 
     <div class="card" id="offCard">
@@ -935,6 +942,11 @@ function render() {
   renderSmart(h.smart);
   // stats + error
   $("volt").textContent = h.supply_voltage != null ? h.supply_voltage.toFixed(1) : "--";
+  const vo = +h.volt_offset || 0;
+  $("voltLbl").textContent = vo ? `battery V (${vo > 0 ? "+" : ""}${vo.toFixed(1)})` : "battery V";
+  $("voltTxt").textContent = (h.supply_voltage_raw != null ? `The heater reports ${h.supply_voltage_raw.toFixed(1)} V. ` : "No voltage while the heater is off. ") +
+    (vo ? `Correction ${vo > 0 ? "+" : ""}${vo.toFixed(1)} V.` : "No correction.") +
+    " If the voltage at the heater's own connector is also low, the wiring is losing it (thin cable, fuse, connection), not the reading.";
   $("case").textContent = h.case_temperature != null ? Math.round(h.case_temperature) : "--";
   $("errShort").textContent = h.error_code == null ? "--" : h.error_code ? "E" + String(h.error_code).padStart(2, "0") : "none";
   const er = h.error_code ? ERR[h.error_code] || [`Error E${h.error_code}`, "Check the heater display and manual."] : null;
@@ -1418,6 +1430,17 @@ $("rawLoad").onclick = loadRaw;
 $("rawCopy").onclick = async () => {
   try { await navigator.clipboard.writeText($("rawList").textContent); toast("Copied"); } catch { toast("Copy failed: select the text by hand", true); }
 };
+
+// battery voltage correction (Android app / box): tap the voltage tile
+$("voltTile").onclick = () => { if (MODE === "server") $("voltCard").hidden = !$("voltCard").hidden; };
+$("voltBtn").onclick = async () => {
+  const real = parseFloat(String($("voltReal").value).replace(",", "."));
+  if (isNaN(real) || real < 8 || real > 16) return toast("Type the voltage your voltmeter shows", true);
+  const r = await api("api/volt", "POST", {real}).catch(() => null);
+  if (!r || r.ok === false) return toast(r?.error || "Not saved", true);
+  $("voltReal").value = ""; toast(`Voltage corrected by ${r.offset > 0 ? "+" : ""}${(+r.offset).toFixed(1)} V`); load();
+};
+$("voltReset").onclick = () => act(api("api/volt", "POST", {offset: 0}), "No voltage correction").then(load);
 
 $("alarmOk").onclick = async () => {
   const key = $("alarmOk").dataset.key; if (!key) return;

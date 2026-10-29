@@ -208,6 +208,15 @@ class HeaterService : Service() {
             "set_clock" -> ok(h.setClock(b.getString("time")))
             "pause" -> { releaseUntil = 0.0; h.setPaused(b.optBoolean("paused")); ok(true) }  // from the page: until switched back
             "pin" -> { h.pin = b.optInt("pin", 1234); onState(); ok(true) }
+            // battery voltage correction: {real: what the voltmeter shows} (needs a reading, i.e. heater running) or {offset}
+            "volt" -> {
+                val raw = h.lastRawVolt
+                when {
+                    b.has("offset") -> { h.voltOffset = b.getDouble("offset"); onState(); ok(true) }
+                    raw == null -> JSONObject().put("ok", false).put("error", "The heater sends its voltage only while it runs: try again with it on")
+                    else -> { h.voltOffset = b.getDouble("real") - raw; onState(); ok(true).put("offset", h.voltOffset) }
+                }
+            }
             "schedule" -> sched.snapshot()
             "raw" -> JSONObject().put("frames", org.json.JSONArray(h.rawLog()))
             // readings from a real thermometer: POST {real} adds one, {delete: t} / {clear: true} remove
