@@ -2,6 +2,7 @@ package io.github.zenfortv.dieselheater
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
@@ -10,7 +11,10 @@ import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothStatusCodes
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import org.json.JSONObject
@@ -50,6 +54,7 @@ class HeaterLink(private val ctx: Context, private val onState: () -> Unit) {
     @Volatile private var connecting = false
     @Volatile private var linkUp = false
     @Volatile private var lastError: String? = null
+    @Volatile private var linkedAt = 0.0
     private val clock = JSONObject(prefs.getString("clock", "{}") ?: "{}")
     private var lastClock = 0.0
     private var retries = 0
@@ -64,21 +69,42 @@ class HeaterLink(private val ctx: Context, private val onState: () -> Unit) {
     val updatedAt get() = updated
     fun frame(): JSONObject = frame
 
+    /** the phone's Bluetooth switch (null: no adapter) */
+    fun btOn(): Boolean = ctx.getSystemService(BluetoothManager::class.java)?.adapter?.isEnabled == true
+
     fun state(): JSONObject {
         val o = JSONObject(frame.toString())
-        o.put("connected", connected && !paused).put("connecting", connecting).put("paused", paused)
+        val bt = btOn()
+        if (!bt) o.put("bt_off", true)
+        o.put("connected", connected && !paused && bt).put("connecting", connecting).put("paused", paused)
             .put("address", name.ifEmpty { address }).put("pin", pin).put("clock_sync", clock)
         lastError?.let { o.put("last_error", it) }
         if (updated > 0) o.put("updated", updated)
         return o
     }
 
+    // Android often sends no disconnect callback when Bluetooth is switched off: listen to the switch itself
+    private val btSwitch = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            when (i.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)) {
+                BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF -> {
+                    retry?.cancel(false)
+                    io.execute { connected = false; ch = null; closeGatt(); frame = JSONObject(); lastError = "Bluetooth is off"; publish() }
+                }
+                BluetoothAdapter.STATE_ON -> { lastError = null; retries = 0; if (!paused) connectAsync() }
+            }
+        }
+    }
+
     fun start() {
+        val f = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+        if (Build.VERSION.SDK_INT >= 33) ctx.registerReceiver(btSwitch, f, Context.RECEIVER_NOT_EXPORTED) else ctx.registerReceiver(btSwitch, f)
         timer.scheduleWithFixedDelay({ poll() }, 3000, 2500, MILLISECONDS)
         if (!paused) connectAsync()
     }
 
     fun stop() {
+        try { ctx.unregisterReceiver(btSwitch) } catch (_: Exception) {}
         timer.shutdownNow()
         io.execute { closeGatt() }
         io.shutdown()
@@ -114,7 +140,7 @@ class HeaterLink(private val ctx: Context, private val onState: () -> Unit) {
         if (addr.isEmpty()) { lastError = "No heater chosen yet"; publish(); return }
         if (!hasPermission()) { lastError = "Bluetooth permission missing"; publish(); return }
         val ad = ctx.getSystemService(BluetoothManager::class.java)?.adapter
-        if (ad == null || !ad.isEnabled) { lastError = "Bluetooth is off"; publish(); scheduleReconnect(); return }
+        if (ad == null || !ad.isEnabled) { lastError = "Bluetooth is off"; publish(); return }  // btSwitch reconnects when it's back on
         connecting = true; publish()
         try {
             closeGatt()
@@ -142,7 +168,7 @@ class HeaterLink(private val ctx: Context, private val onState: () -> Unit) {
                 writeDescriptor(g, d, if (notify) BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE else BluetoothGattDescriptor.ENABLE_INDICATION_VALUE)
                 wl.await(3, SECONDS)
             }
-            ch = found; connected = true; lastError = null; retries = 0
+            ch = found; connected = true; lastError = null; retries = 0; linkedAt = nowS()
             connecting = false; publish()
             doCmd(1, 0)
             lastClock = 0.0
@@ -249,6 +275,17 @@ class HeaterLink(private val ctx: Context, private val onState: () -> Unit) {
 
     private fun poll() {
         if (!connected || paused) return
+        // "connected" but no answer for 20 s (Bluetooth off without callback, heater gone): drop and reconnect
+        if (nowS() - maxOf(updated, linkedAt) > 20) {
+            io.execute {
+                if (!connected) return@execute
+                connected = false; ch = null; closeGatt()
+                lastError = if (btOn()) "Heater stopped answering, reconnecting" else "Bluetooth is off"
+                publish()
+                if (btOn()) { retries = 0; scheduleReconnect() }
+            }
+            return
+        }
         cmd(1, 0)
         if (nowS() - lastClock > 3600 && frame.has("clock_min")) { lastClock = nowS(); syncClock(false) }
     }

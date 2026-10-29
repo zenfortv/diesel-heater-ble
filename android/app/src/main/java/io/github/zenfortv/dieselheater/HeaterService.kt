@@ -242,6 +242,7 @@ class HeaterService : Service() {
             return "Bluetooth released: AirHeaterBLE can connect" to
                 (if (releaseUntil > 0) "Reconnects in $left min$auto" else "Reconnect from the app$auto")
         }
+        if (s.optBoolean("bt_off")) return "Bluetooth is OFF" to "Switch Bluetooth on: the app reconnects to the heater by itself"
         if (!s.optBoolean("connected")) return (if (s.optBoolean("connecting")) "Connecting…" else "Searching for heater…") to s.optString("last_error")
         val sm = s.optJSONObject("smart")
         val room = sm?.takeIf { it.has("room") }?.let { " · room ${ThermoLogic.fmt(it.getDouble("room"))}°" } ?: ""

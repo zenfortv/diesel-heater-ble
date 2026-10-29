@@ -844,10 +844,11 @@ function render() {
   const h = S, conn = !!h.connected && !h.paused, step = h.running_step, on = !!h.running_state;
   // connection chip
   const dot = $("connDot"), label = MODE === "demo" ? "Demo" : MODE === "ble" ? "Bluetooth" : "Box";
-  dot.className = "dot " + (h.paused ? "warn" : conn ? "ok" : h.connecting ? "warn" : "bad");
+  const btOff = MODE === "server" && !!h.bt_off;  // Android app: the phone's Bluetooth is switched off
+  dot.className = "dot " + (btOff ? "bad" : h.paused ? "warn" : conn ? "ok" : h.connecting ? "warn" : "bad");
   // last 4 characters of the heater's Bluetooth name (BYD-…9E28), to tell which heater it is
   const tag = MODE !== "demo" && h.address ? " " + String(h.address).replace(/[^0-9A-Za-z]/g, "").slice(-4).toUpperCase() : "";
-  $("connTxt").textContent = !MODE ? "Not connected" : h.paused ? `${label}${tag} · released` : h.connecting ? `Connecting${tag}…` : conn ? `${label}${tag} · connected` : `${label}${tag} · searching…`;
+  $("connTxt").textContent = !MODE ? "Not connected" : btOff ? "Bluetooth OFF" : h.paused ? `${label}${tag} · released` : h.connecting ? `Connecting${tag}…` : conn ? `${label}${tag} · connected` : `${label}${tag} · searching…`;
   // hero
   const cls = !conn ? "s-dis" : step === 1 || step === 2 ? "s-ign" : step === 3 ? "s-run" : step === 4 || step === 6 ? "s-cool" : "s-off";
   $("hero").className = "card hero " + cls;
@@ -857,7 +858,7 @@ function render() {
   $("room").textContent = roomC != null ? (Math.round(roomC * 10) / 10).toString() : "--";
   $("roomLbl").textContent = byPhone ? "in the room · phone" + (h.smart.phone?.readings ? "" : " (not calibrated yet)")
     : h.sensors_blank && conn ? "heater sends no reading while off" : "in the room";
-  $("stateTxt").textContent = !MODE ? "Not connected" : !conn ? (h.paused ? "Released" : "Searching for heater…") : (STEP[step] ?? (on ? "On" : "Off"));
+  $("stateTxt").textContent = !MODE ? "Not connected" : btOff ? "Bluetooth is off" : !conn ? (h.paused ? "Released" : "Searching for heater…") : (STEP[step] ?? (on ? "On" : "Off"));
   if (!editing && sm) { setMode = "temp"; setVal = sm.target; }
   else if (!editing) {
     if (h.running_mode === 2) { setMode = "temp"; setVal = h.set_temp; }
@@ -1059,7 +1060,8 @@ document.querySelectorAll("nav.tabs button, [data-go]").forEach(b => b.addEventL
   document.querySelectorAll("nav.tabs button").forEach(x => x.classList.toggle("on", x.dataset.tab === tab));
   scrollTo({top: 0});
 }));
-$("connChip").onclick = () => MODE === "server" ? document.querySelector('[data-tab="heater"]').click() : openConnect();
+// Android app: the heater list (also asks to switch Bluetooth on); ESP32/PC box: the Heater tab
+$("connChip").onclick = () => APP ? window.HeaterApp.pickHeater() : MODE === "server" ? document.querySelector('[data-tab="heater"]').click() : openConnect();
 $("changeConn").onclick = () => APP ? window.HeaterApp.pickHeater() : openConnect();
 $("cBle").onclick = () => startBle(false);
 $("cBleAll").onclick = () => startBle(true);

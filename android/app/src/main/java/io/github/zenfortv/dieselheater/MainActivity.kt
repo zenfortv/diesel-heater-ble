@@ -150,19 +150,27 @@ class MainActivity : Activity() {
         val names = mutableListOf<String>()
         val items = ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, mutableListOf())
         fun heaterLike(n: String) = n.startsWith("BYD", true) || n.contains("heater", true)
+        val curA = prefs.getString("address", "") ?: ""
+        if (curA.isNotEmpty()) {
+            val curN = prefs.getString("name", "")?.ifEmpty { null } ?: curA
+            val on = HeaterService.instance?.heater?.connected == true
+            addrs.add(curA); names.add(curN)
+            items.add("✓ $curN\n$curA · " + (if (on) "connected now" else "your heater · tap to reconnect"))
+        }
+        val keep = addrs.size  // found heaters go below the current one
         val cb = object : ScanCallback() {
             override fun onScanResult(type: Int, r: ScanResult) = runOnUiThread {
                 val n = r.scanRecord?.deviceName ?: r.device.name ?: return@runOnUiThread
                 val a = r.device.address
                 if (a in addrs) return@runOnUiThread
                 // heaters first
-                val at = if (heaterLike(n)) names.count { heaterLike(it) } else addrs.size
+                val at = if (heaterLike(n)) keep + names.drop(keep).count { heaterLike(it) } else addrs.size
                 addrs.add(at, a); names.add(at, n)
                 items.insert((if (heaterLike(n)) "🔥 " else "") + "$n\n$a", at)
             }
         }
         val dlg = AlertDialog.Builder(this)
-            .setTitle("Choose your heater (name like BYD-…)")
+            .setTitle("Choose your heater (name like BYD-…) · searching…")
             .setAdapter(items) { _, i ->
                 val name = names[i]
                 val svc = HeaterService.instance
