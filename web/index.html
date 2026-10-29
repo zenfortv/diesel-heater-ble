@@ -1360,7 +1360,7 @@ let autoBusy = false;
 $("autoSw").onchange = async e => {
   const on = e.target.checked;
   autoBusy = true;
-  await act(api("api/auto", "POST", {on}), on ? "Auto thermostat on" : "Auto thermostat off · heater stopped");
+  await act(api("api/auto", "POST", {on}), on ? "Auto thermostat on" : "Auto thermostat off · manual control");
   autoBusy = false;
   load();
 };

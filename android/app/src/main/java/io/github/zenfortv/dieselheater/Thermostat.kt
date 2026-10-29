@@ -127,7 +127,7 @@ class Thermostat(
     @Synchronized fun setTarget(t: Double) { cfg.put("target", t.coerceIn(8.0, MAX_TARGET)); save() }
 
     /** The Auto thermostat switch. On: hold the target (starts now if the room is below it).
-     *  Off: the heater is stopped, back to manual control. */
+     *  Off: back to manual control; a running heater keeps running. */
     @Synchronized fun setEnabled(on: Boolean): Boolean {
         enabled = on
         cfg.put("enabled", on); save()
@@ -143,13 +143,10 @@ class Thermostat(
             return true
         }
         status = ""
-        log("off", "auto thermostat off")
-        if (!heater.running) return true
-        logic.expectOffUntil = nowS() + ThermoLogic.EXPECT_S
-        val ok = heater.power(false)
-        if (ok) event("Auto thermostat off · heater stopped")
-        else alert("Couldn't switch the heater off (no answer). Check it.")
-        return ok
+        // the heater keeps doing what it does: from here it's manual (power button, level/thermostat on the heater)
+        log("off", "auto thermostat off" + if (heater.running) " · heater keeps running, manual control" else "")
+        if (heater.running) event("Auto thermostat off · heater keeps running (manual)")
+        return true
     }
 
     @Synchronized fun tick(eager: Boolean = false) {

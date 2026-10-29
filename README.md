@@ -65,7 +65,7 @@ also need the app set to "No restrictions" in its battery settings. Build: `sh a
 lowers the power near the target and keeps burning. The Auto thermostat switches the burner fully off above the
 target and back on below it, reading the room sensor (it keeps working with the burner off). While it is on, nothing
 else switches the heater: the power button, timers, countdown, safety auto-off, the built-in timer and the heater's own
-auto start/stop are locked. Switching it off stops the heater. Stopping the heater on its panel switches it off too.
+auto start/stop are locked. Switching it off leaves a running heater running (manual control from then on). Stopping the heater on its panel switches it off too.
 The notification shows the degrees to go or the time to the next timer, and every start/stop is notified.
 
 ## Safety checklist
