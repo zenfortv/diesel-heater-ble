@@ -1,5 +1,5 @@
 """Offline checks: packet format, protocol parsing, scheduler events (uses the simulator)."""
-import asyncio, sys, time
+import asyncio, json, sys, time
 from datetime import datetime, timedelta
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -29,28 +29,30 @@ async def sched_test():
     fh = FakeHeater("sim", poll_s=0.1)
     sc = Scheduler(fh, path)
     now = datetime.now()
-    # one-shot ON 2s in the past relative to tick window
-    sc._last = time.time() - 60
-    sc.add("once", {"at": (now - timedelta(seconds=30)).isoformat(timespec="seconds"), "action": "on", "mode": "temp", "value": 25})
+    # timer that started 1 min ago with 30 min run time: fires, run time becomes the off countdown
+    sc._last = time.time() - 120
+    sc.add({"at": (now - timedelta(minutes=1)).strftime("%H:%M"), "dur": 30, "days": list(range(7)), "mode": "temp", "value": 25})
     await sc._tick()
     assert fh._sim["on"] == 1 and fh._sim["mode"] == 2 and fh._sim["value"] == 25, fh._sim
-    assert sc.data["once"][0]["enabled"] is False
+    left = sc.data["off_timer"] - time.time()
+    assert 28 * 60 < left < 30 * 60, left
+    # snooze +10 from the planned time, keep on = no countdown
+    before = sc.data["off_timer"]; sc.snooze(10)
+    assert abs(sc.data["off_timer"] - before - 600) < 1
+    sc.snooze(None); assert sc.data["off_timer"] is None
     # countdown off
-    sc.data["off_timer"] = time.time() - 1; sc._last = time.time() - 10
+    sc.set_off_timer(5); sc.data["off_timer"] = time.time() - 1; sc._last = time.time() - 10
     await sc._tick()
     assert fh._sim["on"] == 0 and sc.data["off_timer"] is None
-    # weekly slot crossing midnight shows in next events
-    sc.add("weekly", {"days": list(range(7)), "on": "23:00", "off": "01:00", "mode": "level", "value": 7})
-    nxt = sc.next_events(4)
-    assert nxt and {e["action"] for e in nxt} == {"on", "off"}, nxt
-    on_t = datetime.fromisoformat([e for e in nxt if e["action"]=="on"][0]["at"])
-    off_t = min(datetime.fromisoformat(e["at"]) for e in nxt if e["action"]=="off" and datetime.fromisoformat(e["at"]) > on_t)
-    assert off_t - on_t == timedelta(hours=2), (on_t, off_t)
-    # weekly ON fires
-    sc.data["weekly"][0].update(on=(now - timedelta(minutes=1)).strftime("%H:%M"), off=(now + timedelta(minutes=30)).strftime("%H:%M"))
-    sc._last = time.time() - 120
-    await sc._tick()
-    assert fh._sim["on"] == 1 and fh._sim["mode"] == 1 and fh._sim["value"] == 7, fh._sim
+    # one-time timer: dated, disabled after firing
+    it = sc.add({"at": "23:59", "dur": 0, "days": []})
+    assert it["date"], it
+    # old weekly/once file converts to timers
+    p2 = Path(__file__).parent / "_sched2.json"
+    p2.write_text(json.dumps({"weekly": [{"days": [0], "on": "23:00", "off": "01:00", "mode": "level", "value": 7}], "once": []}))
+    s2 = Scheduler(fh, p2)
+    assert s2.data["alarms"][0]["dur"] == 120 and "weekly" not in s2.data, s2.data
+    p2.unlink()
     print("history:", [x["src"] + ":" + x["result"] for x in sc.history])
     path.unlink()
 

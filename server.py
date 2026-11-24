@@ -118,19 +118,24 @@ def build_app(cfg: dict) -> web.Application:
     async def get_schedule(_):
         return web.json_response(sched.snapshot())
 
-    @r.post("/api/schedule/{kind:weekly|once}")
+    @r.post("/api/schedule/alarms")
     async def add_item(req):
-        return web.json_response(sched.add(req.match_info["kind"], await req.json()))
+        return web.json_response(sched.add(await req.json()))
 
-    @r.patch("/api/schedule/{kind:weekly|once}/{id}")
+    @r.patch("/api/schedule/alarms/{id}")
     async def patch_item(req):
-        it = sched.update(req.match_info["kind"], req.match_info["id"], await req.json())
+        it = sched.update(req.match_info["id"], await req.json())
         return web.json_response(it) if it else web.HTTPNotFound()
 
-    @r.delete("/api/schedule/{kind:weekly|once}/{id}")
+    @r.delete("/api/schedule/alarms/{id}")
     async def del_item(req):
-        sched.delete(req.match_info["kind"], req.match_info["id"])
+        sched.delete(req.match_info["id"])
         return web.json_response({"ok": True})
+
+    @r.post("/api/snooze")
+    async def snooze(req):
+        sched.snooze((await req.json()).get("minutes"))
+        return web.json_response(sched.snapshot())
 
     @r.post("/api/off_timer")
     async def off_timer(req):

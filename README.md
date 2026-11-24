@@ -34,7 +34,10 @@ Not sure yet? Tap **Try the demo**. It runs a simulated heater and sends nothing
 
 ### What the tabs do
 - **Home**: power, thermostat or power level, room and heater temperature, battery voltage, faults explained in plain words.
-- **Timers**: weekly on/off slots and one-time timers. In direct Bluetooth mode these only run *while the page is open*.
+- **Timers**: like a phone alarm clock. Pick the time on a wheel, how long it stays on, and optionally the days it repeats.
+  5 minutes before it switches off you can keep it warm **+10 min, +30 min, +1 h** or **until you stop it**
+  (a notification in the Android app). Home has a "Switch off in" wheel for the heater that is already on.
+  In direct Bluetooth mode timers only run *while the page is open*.
 - **Heater**: the heater's **built-in daily timer** (start time + run minutes). It is stored inside the heater, so it fires with no phone around (still being tested, see below). Also the heater clock, auto start/stop and safety auto-off.
 
 ### Change the heater's Bluetooth password (default 1234)
@@ -50,7 +53,7 @@ Tested on the colour "AirHeater Controller" panel. The official AirHeaterBLE app
 
 ### Limits
 - The phone only controls the heater while it's within Bluetooth range.
-- In the browser, the weekly timers only fire while the page stays open and the screen is on (use **Night mode** with the phone on the charger).
+- In the browser, the timers only fire while the page stays open and the screen is on (use **Night mode** with the phone on the charger).
   The **Android app** below keeps the heater connected in the background, so timers work with the screen off.
 - The built-in timer and clock commands (10–13) come from the official app's code and are **not yet confirmed** on a real heater.
 
@@ -111,12 +114,12 @@ One self-contained page, installable as an app on Android ("Add to Home screen")
 
 | Mode | When | Timers | Clock fix |
 |---|---|---|---|
-| **Box** | page opened from the ESP32 box / PC server (`http://<box>:8770`) | weekly, one-time, countdown, 24/7 | automatic, hourly |
+| **Box** | page opened from the ESP32 box / PC server (`http://<box>:8770`) | timers, countdown, 24/7 | automatic, hourly |
 | **Direct Bluetooth** | page opened from GitHub Pages in Chrome (Android) -> "Connect via Bluetooth" | only while the page is open + the heater's built-in timer | when the page is open |
 | **Demo** | "Try the demo" | simulated | simulated |
 
 Tabs: **Home** (power, thermostat / power level, room temp, faults in plain words, "switch off in"),
-**Timers** (week chart, weekly slots incl. past midnight, one-time timers, coming up),
+**Timers** (alarm-clock timers: on time + run time + repeat days, coming up),
 **Heater** (built-in timer, heater clock + drift, auto start/stop, safety auto-off, connection, history).
 On a wide screen the three tabs show side by side.
 
@@ -143,8 +146,8 @@ out). Phone (Android) and ESP32 stacks work with these modules, so use Direct mo
 
 ## Features
 - power, thermostat (8-36 °C) or level (1-10), live status (room/heater temp, battery, errors)
-- weekly slots (days + on/off time + temp/level), past midnight allowed
-- one-time timers, "switch off in" countdown, safety auto-off after N hours
+- timers like an alarm clock (on time + run time, once or on chosen days, temp/level), snooze before switch-off
+- "switch off in" countdown, safety auto-off after N hours
 - the heater's own built-in daily timer (start + run minutes), runs with the PC off
 - automatic clock correction: the heater's clock drifts (fast or slow), so the server re-sets it (cmd 10)
   on connect and every `clock_sync_minutes` (config, default 60). Heaters that report their clock

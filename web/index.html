@@ -95,15 +95,37 @@ main{max-width:560px;margin:0 auto;display:grid;gap:12px}
 .lockNote{margin:0;font-size:13px;color:var(--amber)}
 .empty{color:var(--mute);font-size:13px;padding:4px 0}
 
-/* week chart */
-.week{display:grid;gap:5px}
-.wk-row{display:grid;grid-template-columns:36px 1fr;gap:8px;align-items:center;font-size:12px;color:var(--mute)}
-.wk-row.today span{color:var(--fg);font-weight:700}
-.wk-track{position:relative;height:28px;border-radius:8px;background:repeating-linear-gradient(90deg,#2a221e 0 calc(25% - 1px),#3a302a calc(25% - 1px) 25%)}
-.wk-scale{display:flex;justify-content:space-between;font-size:10px;color:var(--mute)}
-.blk{position:absolute;top:3px;bottom:3px;min-height:0;padding:0;border:0;border-radius:6px;background:linear-gradient(90deg,var(--hot),var(--hot2))}
-.blk.off{background:#5a4c43}
-.now{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--fg);border-radius:2px}
+/* wheel picker (iPhone alarm style): scroll-snapped columns, the middle row is the value */
+.wheel{position:relative;display:flex;justify-content:center;align-items:center;gap:4px;height:200px;user-select:none;
+  -webkit-mask:linear-gradient(transparent,#000 30%,#000 70%,transparent);mask:linear-gradient(transparent,#000 30%,#000 70%,transparent)}
+.wheel:before{content:"";position:absolute;left:0;right:0;top:80px;height:40px;border-radius:12px;background:var(--card2);z-index:0}
+.wcol{outline:none;position:relative;z-index:1;height:200px;overflow-y:scroll;scroll-snap-type:y mandatory;scrollbar-width:none;overscroll-behavior:contain;min-width:64px;text-align:center}
+.wcol::-webkit-scrollbar{display:none}
+.wpad{height:80px}
+.witem{height:40px;line-height:40px;scroll-snap-align:center;font-size:24px;font-variant-numeric:tabular-nums;color:var(--mute);cursor:pointer}
+.witem.sel{color:var(--fg);font-weight:650}
+.wsep{position:relative;z-index:1;font-size:15px;color:var(--mute);min-width:24px;text-align:center}
+.wsep.colon{font-size:26px;color:var(--fg);font-weight:650;min-width:8px}
+.wheel.big .witem{font-size:30px}
+.wheel.big .wcol{min-width:84px}
+/* timers (alarms) list */
+.alarm{padding:12px 14px}
+.alarm .main{all:unset;cursor:pointer;flex:1;display:grid;gap:2px}
+.alarm .tt{font-size:34px;font-weight:300;font-variant-numeric:tabular-nums;line-height:1.05}
+.alarm .tt small{font-size:15px;color:var(--mute);font-weight:500;margin-left:6px}
+.alarm.dim .tt{color:var(--mute)}
+/* switch-off countdown + snooze */
+#offCard.warn{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber) inset}
+#offCard.warn h2{color:var(--amber)}
+.offBig{display:flex;align-items:baseline;gap:10px}
+.offBig b{font-size:44px;font-weight:300;font-variant-numeric:tabular-nums;line-height:1}
+.offBig span{color:var(--mute)}
+.snooze{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.snooze button{padding:8px 4px;font-size:14px}
+.snooze button:last-child{background:var(--card);border-color:var(--hot);color:var(--hot2)}
+.qchips{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.qchips button{min-height:38px;padding:4px;font-size:14px}
+.qchips button.on{background:var(--fg);color:var(--bg)}
 
 /* switch */
 .sw{position:relative;width:50px;height:30px;flex:none;display:inline-block}
@@ -216,10 +238,18 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
     </div>
 
     <div class="card" id="offCard">
-      <div class="row between"><h2>Switch off in</h2><button class="link" id="offCancel" hidden>Cancel</button></div>
+      <div class="row between"><h2 id="offH">Switch off in</h2><button class="link" id="offCancel" hidden>Cancel</button></div>
       <p class="lockNote" hidden></p>
-      <div class="qrow" id="offBtns"><button data-m="30">30 m</button><button data-m="60">1 h</button><button data-m="120">2 h</button><button data-m="240">4 h</button></div>
-      <p class="mute" id="offTxt">No countdown running</p>
+      <div class="stack" id="offSet">
+        <div class="wheel" id="offWheel"></div>
+        <div class="qchips" id="offQuick"><button data-m="30">30 min</button><button data-m="45">45 min</button><button data-m="60">1 h</button><button data-m="90">1 h 30</button></div>
+        <button class="primary" id="offStart">Switch off in 1 h</button>
+      </div>
+      <div class="stack" id="offRun" hidden>
+        <div class="offBig"><b id="offAt">--:--</b><span id="offIn"></span></div>
+        <p class="mute" id="offSrc"></p>
+        <div class="snooze" id="snoozeBtns"><button data-s="10">+10 min</button><button data-s="30">+30 min</button><button data-s="60">+1 h</button><button data-s="0">Keep on</button></div>
+      </div>
     </div>
 
     <button class="item" id="nextHome" data-go="timers"><div><div class="s">Next timer</div><div class="t" id="nextHomeTxt">Nothing scheduled</div></div><span class="mute">›</span></button>
@@ -231,14 +261,12 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
     <div class="banner info" id="localNote" hidden></div>
     <div class="banner info" id="timersLocked" hidden>🔒 <b>Locked: Auto thermostat is on.</b> Timers don't switch the heater while it's on.
       Switch Auto thermostat off on Home to use them again.</div>
-    <div class="card" id="weeklyCard">
-      <div class="row between"><h2>Weekly</h2><button class="small primary" id="addSlot">+ Add</button></div>
-      <div class="week" id="week"></div>
-      <div class="list" id="slotList"></div>
-    </div>
-    <div class="card" id="onceCard">
-      <div class="row between"><h2>One-time</h2><button class="small" id="addOnce">+ Add</button></div>
-      <div class="list" id="onceList"></div>
+    <div class="card" id="alarmCard">
+      <div class="row between"><h2>Timers</h2><button class="small primary" id="addAlarm">+ Add</button></div>
+      <p class="lockNote" hidden></p>
+      <p class="mute">Like an alarm clock: the heater turns on at the time and off again after the run time.
+        5 minutes before it switches off you can keep it warm longer.</p>
+      <div class="list" id="alarmList"></div>
     </div>
     <div class="card">
       <h2>Coming up</h2>
@@ -423,25 +451,20 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
   </div>
 </div></dialog>
 
-<dialog id="dlgSlot"><form method="dialog" class="sheet" id="slotForm">
-  <h3 id="slotTitle">Weekly slot</h3>
-  <div class="chips" id="sDays"></div>
-  <div class="grid2"><label class="f">Turn on<input type="time" id="sOn" required></label><label class="f">Turn off<input type="time" id="sOff" required></label></div>
-  <p class="mute" id="sHint"></p>
-  <div class="grid2"><label class="f">Set to<select id="sMode"><option value="temp">Thermostat °C</option><option value="level">Power level</option><option value="keep">Keep last setting</option></select></label>
-    <label class="f" id="sValWrap">Value<input type="number" id="sVal" inputmode="numeric"></label></div>
-  <div class="row between"><span>Active</span><label class="sw"><input type="checkbox" id="sEn" checked><i></i></label></div>
+<dialog id="dlgAlarm"><form method="dialog" class="sheet" id="alarmForm">
+  <h3 id="aTitle">New timer</h3>
+  <h2>Turn on at</h2>
+  <div class="wheel big" id="aTime"></div>
+  <h2>Keep on for</h2>
+  <div class="wheel" id="aDur"></div>
+  <div class="qchips" id="aQuick"><button type="button" data-m="30">30 min</button><button type="button" data-m="45">45 min</button><button type="button" data-m="60">1 h</button><button type="button" data-m="0">Until I stop it</button></div>
+  <h2>Repeat</h2>
+  <div class="chips" id="aDays"></div>
+  <p class="mute" id="aHint"></p>
+  <div class="grid2"><label class="f">Set to<select id="aMode"><option value="keep">Keep last setting</option><option value="temp">Thermostat °C</option><option value="level">Power level</option></select></label>
+    <label class="f" id="aValWrap">Value<input type="number" id="aVal" inputmode="numeric"></label></div>
   <div class="grid2"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="save">Save</button></div>
-  <button class="danger" value="delete" id="sDel" formnovalidate>Delete slot</button>
-</form></dialog>
-
-<dialog id="dlgOnce"><form method="dialog" class="sheet" id="onceForm">
-  <h3>One-time timer</h3>
-  <label class="f">When<input type="datetime-local" id="oAt" required></label>
-  <div class="seg" id="oAction"><button type="button" data-v="on" class="on">Turn on</button><button type="button" data-v="off">Turn off</button></div>
-  <div class="grid2" id="oSet"><label class="f">Set to<select id="oMode"><option value="keep">Keep last setting</option><option value="temp">Thermostat °C</option><option value="level">Power level</option></select></label>
-    <label class="f" id="oValWrap" hidden>Value<input type="number" id="oVal" inputmode="numeric"></label></div>
-  <div class="grid2"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="save">Add</button></div>
+  <button class="danger" value="delete" id="aDel" formnovalidate>Delete timer</button>
 </form></dialog>
 
 <script>
@@ -748,43 +771,72 @@ class BleDevice extends Device {
 }
 
 /* ---------------- in-page scheduler (demo + direct Bluetooth), same API as server.py ---------------- */
-const STALE_SEC = 300;
+const STALE_SEC = 300, WARN_S = 300;
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const rid = () => Math.random().toString(16).slice(2, 10);
 class LocalHub {
   constructor(dev, ns, demo) {
     this.dev = dev; this.ns = ns; this.demo = demo;
-    this.data = {weekly: [], once: [], off_timer: null, max_run_hours: 0, ...store.get(ns + "sched", {})};
+    this.data = {alarms: [], off_timer: null, max_run_hours: 0, ...store.get(ns + "sched", {})};
     this.history = store.get(ns + "hist", []);
+    if (this.migrate()) this.save();
     this.pend = []; this.last = now(); this.onSince = null;
     setInterval(() => this.tick().catch(console.error), 5000);
   }
+  // v2.1: the weekly calendar and one-time timers became timers (alarms)
+  migrate() {
+    const d = this.data;
+    if (!d.weekly && !d.once) return false;
+    d.alarms = d.alarms || [];
+    for (const r of d.weekly || []) {
+      let m = toMin(r.off) - toMin(r.on); if (m <= 0) m += 1440;
+      d.alarms.push({id: rid(), at: r.on, dur: m, days: r.days || [], mode: r.mode || "keep", value: r.value ?? null, enabled: r.enabled !== false});
+    }
+    for (const o of d.once || [])
+      if (o.action === "on" && o.enabled !== false && new Date(o.at) > new Date())
+        d.alarms.push({id: rid(), at: o.at.slice(11, 16), dur: 0, days: [], date: o.at.slice(0, 10), mode: o.mode || "keep", value: o.value ?? null, enabled: true});
+    delete d.weekly; delete d.once;
+    return true;
+  }
   save() { store.set(this.ns + "sched", this.data); store.set(this.ns + "hist", this.history.slice(-30)); }
-  add(kind, it) { it = {...it, id: Math.random().toString(16).slice(2, 10), enabled: it.enabled ?? true}; this.data[kind].push(it); this.save(); return it; }
-  update(kind, id, p) { const it = this.data[kind].find(x => x.id === id); if (it) { Object.assign(it, p, {id}); this.save(); } return it; }
-  del(kind, id) { this.data[kind] = this.data[kind].filter(x => x.id !== id); this.save(); }
-  snapshot() { return {...this.data, next: this.nextEvents(6), history: this.history.slice(-15)}; }
+  // a one-time timer fires the next time its hour comes round
+  fixDate(it) {
+    if (!it.days?.length) { if (it.enabled !== false) { const d = new Date(); if (nowMin() >= toMin(it.at)) d.setDate(d.getDate() + 1); it.date = ymd(d); } }
+    else delete it.date;
+  }
+  add(it) { it = {dur: 60, ...it, id: rid(), enabled: it.enabled ?? true}; this.fixDate(it); this.data.alarms.push(it); this.save(); return it; }
+  update(id, p) { const it = this.data.alarms.find(x => x.id === id); if (it) { Object.assign(it, p, {id}); this.fixDate(it); this.save(); } return it; }
+  del(id) { this.data.alarms = this.data.alarms.filter(x => x.id !== id); this.save(); }
+  setOff(minutes, src = "countdown") {
+    if (minutes > 0) Object.assign(this.data, {off_timer: now() + minutes * 60, off_src: src});
+    else { this.data.off_timer = null; delete this.data.off_src; }
+    this.save();
+  }
+  // from the switch-off warning: N more minutes after the planned time, or (0) on until stopped
+  snooze(minutes) {
+    const src = this.data.off_src || "countdown";
+    if (!minutes) { this.setOff(0); this.record({action: "keep on", src}, "until stopped"); }
+    else { this.data.off_timer = Math.max(this.data.off_timer || now(), now()) + minutes * 60; this.data.off_src = src; this.save(); this.record({action: "snooze", src}, `+${minutes} min`); }
+    return this.snapshot();
+  }
+  snapshot() { return {...this.data, next: this.nextEvents(6), history: this.history.slice(-15), warn_s: WARN_S}; }
   events(a, b) {
     const out = [], start = new Date(a * 1000), end = new Date(b * 1000);
-    const at = (day, hhmm) => { const d = new Date(day); const [h, m] = hhmm.split(":"); d.setHours(+h, +m, 0, 0); return d; };
-    const day = new Date(start); day.setHours(0, 0, 0, 0); day.setDate(day.getDate() - 1);
+    const day = new Date(start); day.setHours(0, 0, 0, 0);
     for (; day <= end; day.setDate(day.getDate() + 1)) {
-      const wd = (day.getDay() + 6) % 7;
-      for (const r of this.data.weekly) {
-        if (r.enabled === false || !r.days.includes(wd)) continue;
-        const on = at(day, r.on), off = at(day, r.off);
-        if (off <= on) off.setDate(off.getDate() + 1);
-        const src = `weekly ${r.on}-${r.off}`;
-        out.push([on, {action: "on", mode: r.mode, value: r.value, src}], [off, {action: "off", src}]);
+      const wd = (day.getDay() + 6) % 7, ds = ymd(day);
+      for (const r of this.data.alarms) {
+        if (r.enabled === false || (r.days?.length ? !r.days.includes(wd) : r.date !== ds)) continue;
+        const t = new Date(day), [h, m] = r.at.split(":"); t.setHours(+h, +m, 0, 0);
+        out.push([t, {action: "on", mode: r.mode, value: r.value, src: `timer ${r.at}`, alarm_id: r.id, dur: r.dur || 0, once: !r.days?.length}]);
       }
     }
-    for (const o of this.data.once) {
-      if (o.enabled !== false) out.push([new Date(o.at), {action: o.action, mode: o.mode, value: o.value, src: `once ${o.at}`, once_id: o.id}]);
-    }
-    if (this.data.off_timer) out.push([new Date(this.data.off_timer * 1000), {action: "off", src: "countdown"}]);
+    if (this.data.off_timer) out.push([new Date(this.data.off_timer * 1000), {action: "off", src: this.data.off_src || "countdown", off_timer: true}]);
     return out.filter(([t]) => t > start && t <= end).sort((x, y) => x[0] - y[0]);
   }
   nextEvents(n) {
     const t = now();
-    return this.events(t, t + 8 * 86400).slice(0, n).map(([d, e]) => ({at: iso(d), action: e.action, mode: e.mode, value: e.value, src: e.src}));
+    return this.events(t, t + 8 * 86400).slice(0, n).map(([d, e]) => ({at: iso(d), action: e.action, mode: e.mode, value: e.value, src: e.src, dur: e.dur}));
   }
   async exec(e) {
     const d = this.dev;
@@ -799,12 +851,12 @@ class LocalHub {
     if (hub !== this) return;  // replaced after switching connection
     const t = now();
     for (const [at, e] of this.events(this.last, t)) {
-      if (e.once_id) this.update("once", e.once_id, {enabled: false});
-      if (e.src === "countdown") { this.data.off_timer = null; this.save(); }
+      if (e.once) this.update(e.alarm_id, {enabled: false});
+      if (e.off_timer) this.setOff(0);
       // the phone froze the page (screen off): don't fire old timers late when it wakes up,
-      // only a missed countdown off still runs
-      if (t - at / 1000 > STALE_SEC && e.src !== "countdown") { this.record(e, "missed (page was asleep)"); continue; }
-      e.deadline = t + 600;
+      // only a missed switch-off still runs
+      if (t - at / 1000 > STALE_SEC && !e.off_timer) { this.record(e, "missed (page was asleep)"); continue; }
+      e.deadline = t + 600; e.at = at / 1000;
       this.pend.push(e);
     }
     this.last = t;
@@ -816,7 +868,11 @@ class LocalHub {
     }
     if (this.pend.length > 1) { this.pend.slice(0, -1).forEach(e => this.record(e, "superseded")); this.pend = this.pend.slice(-1); }
     for (const e of [...this.pend]) {
-      if (await this.exec(e)) { this.record(e, "ok"); this.pend.splice(this.pend.indexOf(e), 1); }
+      if (await this.exec(e)) {
+        this.record(e, "ok"); this.pend.splice(this.pend.indexOf(e), 1);
+        // the timer's run time becomes the switch-off countdown (snooze / keep on work on it)
+        if (e.action === "on") { if (e.dur > 0) Object.assign(this.data, {off_timer: e.at + e.dur * 60, off_src: e.src}); else this.setOff(0); this.save(); }
+      }
       else if (t > e.deadline) { this.record(e, "FAILED (heater unreachable)"); this.pend.splice(this.pend.indexOf(e), 1); }
     }
   }
@@ -832,15 +888,16 @@ class LocalHub {
       case "sync_clock": return ok(d.syncClock(true));
       case "set_clock": return ok(d.setClock(body.time));
       case "pause": await (body.paused ? d.disconnect() : d.connect()); return {ok: true};
-      case "off_timer": this.data.off_timer = body.minutes ? now() + body.minutes * 60 : null; this.save(); return this.snapshot();
+      case "off_timer": this.setOff(body.minutes || 0); return this.snapshot();
+      case "snooze": return this.snooze(body.minutes || 0);
       case "max_run": this.data.max_run_hours = Math.max(0, +body.hours || 0); this.save(); return this.snapshot();
       case "schedule": return this.snapshot();
       case "raw": return {frames: d.raw || []};
     }
-    const m = p.match(/^schedule\/(weekly|once)(?:\/(\w+))?$/);
-    if (m && method === "POST") return this.add(m[1], body);
-    if (m && method === "PATCH") return this.update(m[1], m[2], body);
-    if (m && method === "DELETE") { this.del(m[1], m[2]); return {ok: true}; }
+    const m = p.match(/^schedule\/alarms(?:\/(\w+))?$/);
+    if (m && method === "POST") return this.add(body);
+    if (m && method === "PATCH") return this.update(m[1], body);
+    if (m && method === "DELETE") { this.del(m[1]); return {ok: true}; }
     throw new Error("unknown call " + p);
   }
 }
@@ -849,7 +906,7 @@ class LocalHub {
 let MODE = null;          // "server" | "ble" | "demo"
 const APP = !!window.HeaterApp;  // running inside the Android app (android/)
 let hub = null, ble = null;
-let S = {}, sched = {weekly: [], once: [], next: [], history: []};
+let S = {}, sched = {alarms: [], next: [], history: []};
 let token = store.get("token", ""), simulated = false;
 let setMode = "temp", setVal = null, editing = 0, btTouched = false;
 
@@ -982,43 +1039,49 @@ function render() {
 }
 
 function renderSched() {
-  const s = sched, t = now();
-  // countdown
-  $("offTxt").textContent = s.off_timer ? `Switches off in ${fmtIn(s.off_timer - t)} (at ${new Date(s.off_timer * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})})` : "No countdown running";
-  $("offCancel").hidden = !s.off_timer;
-  $("maxRun").value = String(s.max_run_hours || 0);
-  // week chart: slots crossing midnight are drawn on two days
-  const rows = DAYS.map(() => []);
-  for (const r of s.weekly) {
-    const a = toMin(r.on), b = toMin(r.off);
-    for (const d of r.days) {
-      if (b > a) rows[d].push([a, b, r]);
-      else { rows[d].push([a, 1440, r]); if (b > 0) rows[(d + 1) % 7].push([0, b, r]); }
-    }
+  const s = sched, t = now(), off = s.off_timer;
+  const running = !!S.running_state || [1, 2, 3].includes(S.running_step);
+  // switch-off countdown, its 5-minute warning and the snooze buttons
+  $("offSet").hidden = !!off; $("offRun").hidden = !off; $("offCancel").hidden = !off;
+  const warn = !!off && running && off - t <= (s.warn_s || 300);
+  $("offCard").classList.toggle("warn", warn);
+  $("offH").textContent = !off ? "Switch off in" : warn ? "Switching off soon" : "Switches off at";
+  if (off) {
+    $("offAt").textContent = clock(off);
+    $("offIn").textContent = off > t ? "in " + fmtIn(off - t) : "now";
+    $("offSrc").textContent = (s.off_src && s.off_src !== "countdown" ? `Set by the ${s.off_src}. ` : "") + "Keep it warm longer:";
+    // in the browser there is no notification: buzz once when the warning starts
+    if (warn && MODE !== "server" && warnedFor !== off) { warnedFor = off; navigator.vibrate?.([200, 100, 200]); toast("Heater switches off in 5 min"); }
   }
-  const today = (new Date().getDay() + 6) % 7;
-  $("week").innerHTML = `<div class="wk-row"><span></span><div class="wk-scale"><i>00</i><i>06</i><i>12</i><i>18</i><i>24</i></div></div>` +
-    DAYS.map((n, i) => `<div class="wk-row ${i === today ? "today" : ""}"><span>${n}</span><div class="wk-track">${
-      rows[i].map(([a, b, r]) => `<button class="blk ${r.enabled === false ? "off" : ""}" style="left:${a / 14.4}%;width:${Math.max(1.5, (b - a) / 14.4)}%" data-slot="${r.id}" aria-label="${r.on} to ${r.off}"></button>`).join("")
-    }${i === today ? `<i class="now" style="left:${nowMin() / 14.4}%"></i>` : ""}</div></div>`).join("");
-  const val = r => r.mode === "keep" ? "keeps last setting" : r.mode === "temp" ? `${r.value}°C` : `level ${r.value}`;
-  const days = r => r.days.length === 7 ? "every day" : r.days.length === 5 && !r.days.includes(5) && !r.days.includes(6) ? "weekdays" : r.days.map(d => DAYS[d]).join(" ");
-  $("slotList").innerHTML = s.weekly.length ? s.weekly.map(r => `
-    <div class="item ${r.enabled === false ? "dim" : ""}"><button class="link" style="all:unset;cursor:pointer;flex:1" data-slot="${r.id}">
-      <div class="t">${r.on} → ${r.off}</div><div class="s">${days(r)} · ${val(r)}</div></button>
-      <label class="sw"><input type="checkbox" data-toggle="${r.id}" ${r.enabled === false ? "" : "checked"}><i></i></label></div>`).join("")
-    : `<p class="empty">No weekly slots yet. Tap “+ Add” to create one.</p>`;
-  const once = s.once.filter(o => o.enabled !== false);
-  $("onceList").innerHTML = once.length ? once.map(o => `
-    <div class="item"><div><div class="t">${o.action === "on" ? "Turn on" : "Turn off"} · ${whenTxt(o.at)}</div>
-      <div class="s">${o.action === "on" && o.mode !== "keep" ? val(o) : new Date(o.at).toLocaleDateString()}</div></div>
-      <button class="small danger" data-delonce="${o.id}" aria-label="Delete">✕</button></div>`).join("") : `<p class="empty">None</p>`;
+  $("maxRun").value = String(s.max_run_hours || 0);
+  // timers, like the alarm list on a phone
+  const val = r => r.mode === "temp" && r.value ? `${r.value}°C` : r.mode === "level" && r.value ? `level ${r.value}` : "";
+  $("alarmList").innerHTML = (s.alarms || []).length ? s.alarms.slice().sort((a, b) => toMin(a.at) - toMin(b.at)).map(r => `
+    <div class="item alarm ${r.enabled === false ? "dim" : ""}"><button class="main" data-alarm="${r.id}">
+      <div class="tt">${r.at}${r.dur ? `<small>→ ${hm((toMin(r.at) + r.dur) % 1440)}</small>` : ""}</div>
+      <div class="s">${[durTxt(r.dur), daysTxt(r), val(r)].filter(Boolean).join(" · ")}</div></button>
+      <label class="sw"><input type="checkbox" data-atoggle="${r.id}" ${r.enabled === false ? "" : "checked"}><i></i></label></div>`).join("")
+    : `<p class="empty">No timers yet. Tap “+ Add”: for example on at 07:00 for 45 minutes.</p>`;
   $("nextList").innerHTML = s.next.length ? s.next.map(e => `
-    <div class="item"><div><div class="t">${whenTxt(e.at)} · ${esc(evLabel(e))}</div><div class="s">${esc(e.src)}</div></div>
+    <div class="item"><div><div class="t">${whenTxt(e.at)} · ${esc(evLabel(e))}</div><div class="s">${esc(e.src)}${e.action === "on" ? " · " + durTxt(e.dur) : ""}</div></div>
       <span class="dot ${e.action === "on" ? "ok" : ""}"></span></div>`).join("") : `<p class="empty">Nothing scheduled</p>`;
   const n = s.next[0];
-  $("nextHomeTxt").textContent = S.smart?.enabled ? "Paused while Auto thermostat is on" : n ?`${evLabel(n)} · ${whenTxt(n.at)} (in ${fmtIn(new Date(n.at) / 1000 - t)})` : "Nothing scheduled";
+  $("nextHomeTxt").textContent = S.smart?.enabled ? "Paused while Auto thermostat is on" : n ? `${evLabel(n)} · ${whenTxt(n.at)} (in ${fmtIn(new Date(n.at) / 1000 - t)})` : "Nothing scheduled";
   $("hist").innerHTML = s.history.slice().reverse().map(x => `<div class="item"><div><div class="t">${esc(x.action)} · ${esc(x.result)}</div><div class="s">${esc(x.t.replace("T", " "))} · ${esc(x.src)}</div></div></div>`).join("") || `<p class="empty">Empty</p>`;
+}
+let warnedFor = null;
+const clock = sec => new Date(sec * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+const durTxt = m => !m ? "on until stopped" : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? " " + (m % 60) + " min" : ""}`;
+function daysTxt(r) {
+  const d = r.days || [];
+  if (!d.length) {
+    if (r.enabled === false || !r.date) return "once";
+    const today = ymd(new Date()), tm = new Date(); tm.setDate(tm.getDate() + 1);
+    return "once · " + (r.date === today ? "today" : r.date === ymd(tm) ? "tomorrow" : new Date(r.date + "T12:00").toLocaleDateString([], {weekday: "short", day: "numeric", month: "short"}));
+  }
+  if (d.length === 7) return "every day";
+  const k = [...d].sort().join("");
+  return k === "01234" ? "weekdays" : k === "56" ? "weekends" : [...d].sort().map(i => DAYS[i]).join(" ");
 }
 
 async function load() {
@@ -1137,11 +1200,15 @@ function step(d) {
 }
 $("minus").onclick = () => step(-1);
 $("plus").onclick = () => step(1);
-$("offBtns").onclick = e => {
-  const m = e.target.closest("button")?.dataset.m;
-  if (m) act(api("api/off_timer", "POST", {minutes: +m}), `Off in ${fmtIn(m * 60)}`).then(s => { if (s?.weekly) { sched = s; renderSched(); } });
+const schedReply = s => { if (s?.alarms) { sched = s; renderSched(); } };
+$("offQuick").onclick = e => { const m = e.target.closest("button")?.dataset.m; if (m) offWheel.set(+m, true); };
+$("offStart").onclick = () => act(api("api/off_timer", "POST", {minutes: offWheel.get()}), `Off in ${fmtIn(offWheel.get() * 60)}`).then(schedReply);
+$("offCancel").onclick = () => act(api("api/off_timer", "POST", {minutes: null}), "Countdown cancelled").then(schedReply);
+$("snoozeBtns").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  const m = +b.dataset.s;
+  act(api("api/snooze", "POST", {minutes: m || null}), m ? `Warm ${durTxt(m)} longer` : "Stays on until you stop it").then(schedReply);
 };
-$("offCancel").onclick = () => act(api("api/off_timer", "POST", {minutes: null}), "Countdown cancelled").then(s => { if (s?.weekly) { sched = s; renderSched(); } });
 $("maxRun").onchange = e => act(api("api/max_run", "POST", {hours: +e.target.value}), "Saved").then(load);
 ["btStart", "btDur", "btEn"].forEach(id => $(id).addEventListener("input", () => { btTouched = true; }));
 $("btSave").onclick = async () => {
@@ -1196,76 +1263,128 @@ $("pinDone").onclick = () => pinEnd(true);
 $("pinUndo").onclick = () => pinEnd(false);
 $("dlgPin").addEventListener("close", () => { if (pinOld != null) pinEnd(false); });
 
-// weekly slot sheet
-let editId = null;
-$("sDays").innerHTML = DAYS.map((d, i) => `<label><input type="checkbox" value="${i}"><span>${d[0]}${d[1]}</span></label>`).join("");
 function setValField(sel, wrap, input) {
   const m = $(sel).value; $(wrap).hidden = m === "keep";
   input = $(input); input.min = m === "temp" ? 8 : 1; input.max = m === "temp" ? 36 : 10;
   if (!input.value || +input.value < +input.min || +input.value > +input.max) input.value = m === "temp" ? 21 : 5;
 }
-function slotHint() {
-  const a = $("sOn").value, b = $("sOff").value;
-  $("sHint").textContent = a && b && toMin(b) <= toMin(a) ? "Turns off the next morning (runs past midnight)." : "";
-}
-function openSlot(id) {
-  const r = sched.weekly.find(x => x.id === id);
-  editId = r ? r.id : null;
-  $("slotTitle").textContent = r ? "Edit weekly slot" : "New weekly slot";
-  document.querySelectorAll("#sDays input").forEach(i => { i.checked = r ? r.days.includes(+i.value) : +i.value < 5; });
-  $("sOn").value = r?.on || "07:00"; $("sOff").value = r?.off || "08:30";
-  $("sMode").value = r?.mode || "temp"; $("sVal").value = r?.value ?? "";
-  $("sEn").checked = r ? r.enabled !== false : true;
-  $("sDel").hidden = !r;
-  setValField("sMode", "sValWrap", "sVal"); slotHint();
-  $("dlgSlot").showModal();
-}
-$("sMode").onchange = () => { $("sVal").value = ""; setValField("sMode", "sValWrap", "sVal"); };
-$("sOn").oninput = $("sOff").oninput = slotHint;
-$("addSlot").onclick = () => openSlot(null);
-document.addEventListener("click", e => {
-  const s = e.target.closest("[data-slot]"); if (s) openSlot(s.dataset.slot);
-  const d = e.target.closest("[data-delonce]"); if (d) act(api(`api/schedule/once/${d.dataset.delonce}`, "DELETE"), "Removed").then(load);
-});
-document.addEventListener("change", e => {
-  const id = e.target.dataset?.toggle;
-  if (id) act(api(`api/schedule/weekly/${id}`, "PATCH", {enabled: e.target.checked}), e.target.checked ? "Slot on" : "Slot paused").then(load);
-});
-$("dlgSlot").addEventListener("close", async () => {
-  const v = $("dlgSlot").returnValue; $("dlgSlot").returnValue = "";
-  if (v === "delete" && editId) { await act(api(`api/schedule/weekly/${editId}`, "DELETE"), "Slot deleted"); return load(); }
-  if (v !== "save") return;
-  const days = [...document.querySelectorAll("#sDays input:checked")].map(i => +i.value);
-  if (!days.length) return toast("Pick at least one day", true);
-  const body = {days, on: $("sOn").value, off: $("sOff").value, mode: $("sMode").value, value: $("sMode").value === "keep" ? null : +$("sVal").value, enabled: $("sEn").checked};
-  await act(editId ? api(`api/schedule/weekly/${editId}`, "PATCH", body) : api("api/schedule/weekly", "POST", body), "Slot saved");
-  load();
-});
 
-// one-time sheet
-let oAction = "on";
-$("oAction").onclick = e => {
+/* wheel picker: columns of values snapped under the middle band; loop = endless like a clock */
+function Wheel(host, cols, onChange) {
+  host.innerHTML = "";
+  const parts = [];
+  for (const c of cols) {
+    if (c.sep != null) { const s = document.createElement("div"); s.className = "wsep" + (c.sep === ":" ? " colon" : ""); s.textContent = c.sep; host.append(s); continue; }
+    const col = document.createElement("div"); col.className = "wcol";
+    const n = c.values.length, reps = c.loop ? 9 : 1, base = c.loop ? 4 * n : 0;
+    let html = `<div class="wpad"></div>`;
+    for (let r = 0; r < reps; r++) html += c.values.map(v => `<div class="witem">${c.fmt ? c.fmt(v) : v}</div>`).join("");
+    col.innerHTML = html + `<div class="wpad"></div>`;
+    host.append(col);
+    const items = col.querySelectorAll(".witem");
+    const part = {idx: 0, sel: null};
+    const mark = raw => { part.sel?.classList.remove("sel"); part.sel = items[raw]; part.sel?.classList.add("sel"); };
+    part.go = (i, smooth) => { part.idx = i; const raw = base + i; col.scrollTo({top: raw * 40, behavior: smooth ? "smooth" : "instant"}); mark(raw); };
+    let tm;
+    col.addEventListener("scroll", () => {
+      const raw = clamp(Math.round(col.scrollTop / 40), 0, items.length - 1), i = raw % n;
+      if (items[raw] !== part.sel) mark(raw);
+      if (i !== part.idx) { part.idx = i; onChange?.(); }
+      // endless columns: jump back to the middle copy once the wheel stops
+      clearTimeout(tm); tm = setTimeout(() => { if (c.loop && Math.abs(raw - base - part.idx) >= n) part.go(part.idx, false); }, 180);
+    }, {passive: true});
+    col.addEventListener("click", e => { const k = [...items].indexOf(e.target.closest(".witem")); if (k >= 0) col.scrollTo({top: k * 40, behavior: "smooth"}); });
+    // a hidden column loses its scroll position: put it back when it is shown again
+    new ResizeObserver(() => { if (col.clientHeight) part.go(part.idx, false); }).observe(col);
+    part.values = c.values;
+    parts.push(part);
+  }
+  return parts;
+}
+const nearest = (vals, v) => vals.reduce((bi, x, i) => Math.abs(x - v) < Math.abs(vals[bi] - v) ? i : bi, 0);
+function DurWheel(host, onChange) {
+  const p = Wheel(host, [{values: Array.from({length: 13}, (_, i) => i)}, {sep: "h"},
+    {values: Array.from({length: 12}, (_, i) => i * 5), fmt: pad, loop: true}, {sep: "min"}], onChange);
+  return {
+    get: () => Math.max(5, p[0].values[p[0].idx] * 60 + p[1].values[p[1].idx]),
+    set(m, smooth) { m = clamp(Math.round(m / 5) * 5, 5, 12 * 60 + 55); p[0].go(Math.floor(m / 60), smooth); p[1].go(nearest(p[1].values, m % 60), smooth); onChange?.(); },
+  };
+}
+function TimeWheel(host, onChange) {
+  const p = Wheel(host, [{values: Array.from({length: 24}, (_, i) => i), fmt: pad, loop: true}, {sep: ":"},
+    {values: Array.from({length: 60}, (_, i) => i), fmt: pad, loop: true}], onChange);
+  return {
+    get: () => pad(p[0].idx) + ":" + pad(p[1].idx),
+    set(s) { const [h, m] = s.split(":").map(Number); p[0].go(h, false); p[1].go(m, false); onChange?.(); },
+  };
+}
+
+// Home: switch off in…
+const offWheel = DurWheel($("offWheel"), () => {
+  const m = offWheel?.get?.() ?? 60;
+  $("offStart").textContent = `Switch off in ${durTxt(m)}`;
+  $("offQuick").querySelectorAll("button").forEach(b => b.classList.toggle("on", +b.dataset.m === m));
+});
+offWheel.set(store.get("offMin", 60));
+$("offStart").addEventListener("click", () => store.set("offMin", offWheel.get()));
+
+// timer sheet
+let editId = null, aForever = false;
+$("aDays").innerHTML = DAYS.map((d, i) => `<label><input type="checkbox" value="${i}"><span>${d[0]}${d[1]}</span></label>`).join("");
+const aTime = TimeWheel($("aTime"), alarmHint);
+const aDur = DurWheel($("aDur"), () => { aForever = false; alarmHint(); });
+function alarmHint() {
+  if (!aTime || !aDur) return;
+  const at = aTime.get(), days = [...document.querySelectorAll("#aDays input:checked")].map(i => +i.value);
+  const dur = aForever ? 0 : aDur.get();
+  $("aQuick").querySelectorAll("button").forEach(b => b.classList.toggle("on", aForever ? b.dataset.m === "0" : +b.dataset.m === dur));
+  $("aDur").style.opacity = aForever ? .35 : 1;
+  const when = days.length ? daysTxt({days}) : nowMin() < toMin(at) ? "Today" : "Tomorrow";
+  $("aHint").textContent = `${when[0].toUpperCase() + when.slice(1)} on at ${at}, ` + (dur ? `off at ${hm((toMin(at) + dur) % 1440)} (${durTxt(dur)}).` : "stays on until you stop it.") +
+    (days.length ? "" : " No day picked = only once.");
+}
+$("aQuick").onclick = e => {
   const b = e.target.closest("button"); if (!b) return;
-  oAction = b.dataset.v;
-  [...$("oAction").children].forEach(x => x.classList.toggle("on", x === b));
-  $("oSet").hidden = oAction === "off";
+  const m = +b.dataset.m;
+  if (m) { aDur.set(m, true); aForever = false; } else aForever = true;
+  alarmHint();
 };
-$("oMode").onchange = () => { $("oVal").value = ""; setValField("oMode", "oValWrap", "oVal"); };
-$("addOnce").onclick = () => {
-  const d = new Date(Date.now() + 3600e3); d.setMinutes(0, 0, 0);
-  $("oAt").value = iso(d); $("oMode").value = "keep"; setValField("oMode", "oValWrap", "oVal");
-  $("dlgOnce").showModal();
-};
-$("dlgOnce").addEventListener("close", async () => {
-  const v = $("dlgOnce").returnValue; $("dlgOnce").returnValue = "";
-  if (v !== "save" || !$("oAt").value) return;
-  if (new Date($("oAt").value) <= new Date()) return toast("That time is in the past", true);
-  const mode = $("oMode").value;
-  await act(api("api/schedule/once", "POST", {at: $("oAt").value, action: oAction, mode, value: mode === "keep" ? null : +$("oVal").value}), "Timer added");
+$("aDays").onchange = alarmHint;
+$("aMode").onchange = () => { $("aVal").value = ""; setValField("aMode", "aValWrap", "aVal"); };
+function openAlarm(id) {
+  const r = (sched.alarms || []).find(x => x.id === id), last = store.get("lastAlarm", {at: "07:00", dur: 45});
+  editId = r ? r.id : null;
+  $("aTitle").textContent = r ? "Edit timer" : "New timer";
+  document.querySelectorAll("#aDays input").forEach(i => { i.checked = !!r?.days?.includes(+i.value); });
+  $("aMode").value = r?.mode || "keep"; $("aVal").value = r?.value ?? "";
+  setValField("aMode", "aValWrap", "aVal");
+  $("aDel").hidden = !r;
+  $("dlgAlarm").showModal();
+  const dur = r ? r.dur : last.dur;
+  aForever = !dur;
+  aTime.set(r?.at || last.at); aDur.set(dur || 45);
+  alarmHint();
+}
+$("addAlarm").onclick = () => openAlarm(null);
+document.addEventListener("click", e => { const a = e.target.closest("[data-alarm]"); if (a) openAlarm(a.dataset.alarm); });
+document.addEventListener("change", e => {
+  const id = e.target.dataset?.atoggle;
+  if (id) act(api(`api/schedule/alarms/${id}`, "PATCH", {enabled: e.target.checked}), e.target.checked ? "Timer on" : "Timer off").then(load);
+});
+$("dlgAlarm").addEventListener("close", async () => {
+  const v = $("dlgAlarm").returnValue; $("dlgAlarm").returnValue = "";
+  if (v === "delete" && editId) { await act(api(`api/schedule/alarms/${editId}`, "DELETE"), "Timer deleted"); return load(); }
+  if (v !== "save") return;
+  const days = [...document.querySelectorAll("#aDays input:checked")].map(i => +i.value);
+  const mode = $("aMode").value;
+  const body = {at: aTime.get(), dur: aForever ? 0 : aDur.get(), days, mode, value: mode === "keep" ? null : +$("aVal").value, enabled: true};
+  store.set("lastAlarm", {at: body.at, dur: body.dur});
+  await act(editId ? api(`api/schedule/alarms/${editId}`, "PATCH", body) : api("api/schedule/alarms", "POST", body),
+    `On at ${body.at}` + (body.dur ? `, off after ${durTxt(body.dur)}` : ""));
   load();
 });
 
-setInterval(() => { if (MODE) renderSched(); }, 30000);  // keep countdowns fresh
+setInterval(() => { if (MODE) renderSched(); }, 10000);  // keep countdowns fresh
 
 /* ---------- smart thermostat (Android app / box only: needs the always-running service) ---------- */
 const SM = {smBelow: ["below", [0.5, 1, 1.5, 2, 3], v => `${v}°`], smAbove: ["above", [0.5, 1, 1.5, 2, 3], v => `${v}°`],
@@ -1458,7 +1577,7 @@ $("autoSw").onchange = async e => {
 };
 
 // while the Auto thermostat is on, nothing else may switch the heater: grey these out with the reason
-const LOCKS = {offCard: "🔒 Off: Auto thermostat is on.", weeklyCard: "", onceCard: "",
+const LOCKS = {offCard: "🔒 Off: Auto thermostat is on.", alarmCard: "",
   btCard: "🔒 Off: Auto thermostat is on. Disable the heater's own timer too if it is set, or it will start the heater by itself.",
   optCard: "🔒 Safety auto-off is not used while Auto thermostat is on."};
 function lockAll(on) {

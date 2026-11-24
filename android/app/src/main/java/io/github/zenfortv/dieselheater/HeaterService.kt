@@ -43,6 +43,9 @@ class HeaterService : Service() {
         nm.createNotificationChannel(NotificationChannel(EVENTS, "Heater started / stopped", NotificationManager.IMPORTANCE_DEFAULT).apply {
             description = "Every start and stop made by the auto thermostat, a timer or the countdown"
         })
+        nm.createNotificationChannel(NotificationChannel(WARN, "Before switching off", NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "5 minutes before a timer switches the heater off: keep it warm 10 min, 30 min, 1 h or until you stop it"
+        })
         val n = note("Starting…")
         if (Build.VERSION.SDK_INT >= 29) startForeground(NOTE_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         else startForeground(NOTE_ID, n)
@@ -61,7 +64,7 @@ class HeaterService : Service() {
         web = WebServer(this, ::api) { stateMsg() }
         try { web.start(PORT) } catch (_: Exception) {}
         heater.start()
-        ticker.scheduleWithFixedDelay({ try { sched.tick() } catch (_: Exception) {} }, 5, 5, SECONDS)
+        ticker.scheduleWithFixedDelay({ try { sched.tick(); warnNote(sched.warnAt()) } catch (_: Exception) {} }, 5, 5, SECONDS)
         ticker.scheduleWithFixedDelay({ try { thermo.tick() } catch (_: Exception) {} }, 8, 5, SECONDS)
         ticker.scheduleWithFixedDelay({ releaseCheck(); updateNote(force = true); watchdog() }, 30, 30, SECONDS)
         instance = this
@@ -76,6 +79,10 @@ class HeaterService : Service() {
         }
         if (intent?.action == ACTION_RELEASE) release(RELEASE_S)
         if (intent?.action == ACTION_RECONNECT) { releaseUntil = 0.0; heater.setPaused(false) }
+        if (intent?.action == ACTION_SNOOZE) {
+            val m = intent.getIntExtra("min", 0)
+            ticker.execute { try { snooze(if (m > 0) m.toDouble() else null) } catch (_: Exception) {} }
+        }
         if (intent?.action == ACTION_ACK) intent.getStringExtra("key")?.let { k -> ticker.execute { try { thermo.ack(k) } catch (_: Exception) {} } }
         return START_STICKY
     }
@@ -151,6 +158,45 @@ class HeaterService : Service() {
             .addAction(Notification.Action.Builder(null, "OK, keep working", ok).build()).build())
     }
 
+    /* 5 minutes before a timer switches the heater off: one notification with the snooze buttons,
+       shown once per planned switch-off, removed when the time moves or the heater goes off */
+    @Volatile private var warnFor = -1.0
+    @Synchronized private fun warnNote(offAt: Double?) {
+        val nm = getSystemService(NotificationManager::class.java)
+        if (offAt == null) { if (warnFor > 0) { nm.cancel(WARN_ID); warnFor = -1.0 }; return }
+        if (offAt == warnFor) return
+        warnFor = offAt
+        val title = "Heater switches off at ${hhmm(offAt)}"
+        val text = "Keep it warm a bit longer?"
+        fun pi(code: Int, min: Int) = PendingIntent.getService(this, code, Intent(this, HeaterService::class.java)
+            .setAction(ACTION_SNOOZE).putExtra("min", min), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val big = android.widget.RemoteViews(packageName, R.layout.note_warn).apply {
+            setTextViewText(R.id.wTitle, title); setTextViewText(R.id.wText, text)
+            setOnClickPendingIntent(R.id.w10, pi(20, 10)); setOnClickPendingIntent(R.id.w30, pi(21, 30))
+            setOnClickPendingIntent(R.id.w60, pi(22, 60)); setOnClickPendingIntent(R.id.wKeep, pi(23, 0))
+        }
+        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        nm.notify(WARN_ID, Notification.Builder(this, WARN).setSmallIcon(R.drawable.ic_flame)
+            .setContentTitle(title).setContentText(text)
+            .setStyle(Notification.DecoratedCustomViewStyle())
+            .setCustomBigContentView(big).setCustomHeadsUpContentView(big)
+            .setContentIntent(open).setAutoCancel(true)
+            .setShowWhen(true).setWhen((offAt * 1000).toLong()).setUsesChronometer(true).setChronometerCountDown(true)
+            .setTimeoutAfter(((offAt - nowS() + 30) * 1000).toLong().coerceAtLeast(1000))
+            .build())
+    }
+
+    private fun hhmm(s: Double) = java.time.Instant.ofEpochSecond(s.toLong()).atZone(java.time.ZoneId.systemDefault())
+        .let { "%02d:%02d".format(it.hour, it.minute) }
+
+    private fun snooze(minutes: Double?) {
+        val r = sched.snooze(minutes)
+        warnNote(sched.warnAt())
+        event(if (minutes == null) "Heater stays on until you stop it"
+            else "Kept warm ${if (minutes >= 60) "${(minutes / 60).toInt()} h" else "${minutes.toInt()} min"} longer · switches off at ${hhmm(r.optDouble("off_timer"))}")
+        onState()
+    }
+
     private var eventId = 0
     private fun event(msg: String) {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
@@ -184,14 +230,15 @@ class HeaterService : Service() {
                 val r = thermo.setEnabled(b.optBoolean("on")); onState(); ok(r)
             }
             // locked while the Auto thermostat is on (the page greys them out too)
-            "power", "level", "auto_start_stop", "builtin_timer", "off_timer", "max_run" ->
+            "power", "level", "auto_start_stop", "builtin_timer", "off_timer", "snooze", "max_run" ->
                 if (thermo.enabled) JSONObject().put("ok", false).put("locked", true).put("error", "Locked while Auto thermostat is on")
                 else when (p) {
                     "power" -> ok(h.power(b.optBoolean("on")))
                     "level" -> ok(h.setLevel(b.optDouble("level")))
                     "auto_start_stop" -> ok(h.setAutoStartStop(b.optBoolean("on")))
                     "builtin_timer" -> ok(h.setBuiltinTimer(b.getString("start"), b.optInt("duration", 60), b.optBoolean("enabled")))
-                    "off_timer" -> { sched.setOffTimer(if (b.isNull("minutes")) null else b.optDouble("minutes")); sched.snapshot() }
+                    "off_timer" -> { sched.setOffTimer(if (b.isNull("minutes")) null else b.optDouble("minutes")); warnNote(sched.warnAt()); sched.snapshot() }
+                    "snooze" -> { snooze(if (b.isNull("minutes")) null else b.optDouble("minutes")); sched.snapshot() }
                     else -> { sched.setMaxRun(b.optDouble("hours", 0.0)); sched.snapshot() }
                 }
             "temperature" -> {
@@ -233,12 +280,12 @@ class HeaterService : Service() {
             }
             "phone_log" -> JSONObject().put("log", thermo.phone.logJson())
             else -> {
-                val m = Regex("^schedule/(weekly|once)(?:/(\\w+))?$").find(p) ?: return null
-                val kind = m.groupValues[1]; val id = m.groupValues[2]
+                val m = Regex("^schedule/alarms(?:/(\\w+))?$").find(p) ?: return null
+                val id = m.groupValues[1]
                 when (method) {
-                    "POST" -> sched.add(kind, b)
-                    "PATCH" -> sched.update(kind, id, b)
-                    "DELETE" -> { sched.delete(kind, id); ok(true) }
+                    "POST" -> sched.add(b)
+                    "PATCH" -> sched.update(id, b)
+                    "DELETE" -> { sched.delete(id); ok(true) }
                     else -> null
                 }
             }
@@ -271,7 +318,8 @@ class HeaterService : Service() {
         val mins = java.time.Duration.between(LocalDateTime.now(), at).toMinutes().coerceAtLeast(0)
         val left = if (mins >= 60) "${mins / 60} h ${mins % 60} min" else "$mins min"
         val day = if (at.toLocalDate() == LocalDateTime.now().toLocalDate()) "" else at.dayOfWeek.name.take(3).lowercase().replaceFirstChar { it.uppercase() } + " "
-        return "Next timer: ${if (n.getString("action") == "on") "On" else "Off"} in $left ($day${"%02d:%02d".format(at.hour, at.minute)})"
+        val hm = "%02d:%02d".format(at.hour, at.minute)
+        return if (n.getString("action") == "on") "Next timer: on in $left ($day$hm)" else "Switches off in $left ($day$hm)"
     }
 
     private fun updateNote(force: Boolean) {
@@ -307,6 +355,9 @@ class HeaterService : Service() {
         const val CHANNEL = "link"
         const val ALERTS = "alerts"
         const val EVENTS = "events"
+        const val WARN = "warn"
+        const val WARN_ID = 60
+        const val ACTION_SNOOZE = "snooze"
         const val NOTE_ID = 1
         const val ACTION_QUIT = "quit"
         const val ACTION_RELEASE = "release"

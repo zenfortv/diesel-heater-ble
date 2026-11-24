@@ -4,12 +4,17 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
 
-/** Weekly / one-time / countdown timers + safety cap. Same data and API as LocalHub in web/index.html
- *  and scheduler.py, but running in the background service so it fires with the screen off. */
+/** Heating alarms (on at a time, off N minutes later), the switch-off countdown with its 5-minute warning
+ *  and snooze, and the safety cap. Same data and API as LocalHub in web/index.html and scheduler.py,
+ *  running in the background service so it fires with the screen off.
+ *
+ *  data: alarms [{id, at "07:00", dur minutes (0 = until stopped), days [0..6] (empty = once), date, mode, value, enabled}],
+ *        off_timer epoch | null, off_src label of who set it, max_run_hours */
 class Scheduler(private val file: File, private val heater: HeaterLink) {
     private var data = JSONObject()
     private var history = JSONArray()
@@ -40,10 +45,38 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
                 history = j.optJSONArray("history") ?: JSONArray()
             }
         } catch (_: Exception) {}
-        if (!data.has("weekly")) data.put("weekly", JSONArray())
-        if (!data.has("once")) data.put("once", JSONArray())
+        if (!data.has("alarms")) data.put("alarms", JSONArray())
         if (!data.has("off_timer")) data.put("off_timer", JSONObject.NULL)
         if (!data.has("max_run_hours")) data.put("max_run_hours", 0)
+        if (migrate()) save()
+    }
+
+    /** v2.1: the weekly calendar and one-time timers became alarms */
+    private fun migrate(): Boolean {
+        if (!data.has("weekly") && !data.has("once")) return false
+        val alarms = list()
+        data.optJSONArray("weekly")?.let { w ->
+            for (i in 0 until w.length()) try {
+                val r = w.getJSONObject(i)
+                val on = LocalTime.parse(r.getString("on"))
+                alarms.put(JSONObject().put("id", newId()).put("at", r.getString("on"))
+                    .put("dur", AlarmLogic.slotMinutes(on, LocalTime.parse(r.getString("off"))))
+                    .put("days", r.optJSONArray("days") ?: JSONArray()).put("mode", r.opt("mode") ?: "keep")
+                    .put("value", r.opt("value") ?: JSONObject.NULL).put("enabled", r.optBoolean("enabled", true)))
+            } catch (_: Exception) {}
+        }
+        data.optJSONArray("once")?.let { o ->
+            for (i in 0 until o.length()) try {
+                val r = o.getJSONObject(i)
+                val at = LocalDateTime.parse(r.getString("at"))
+                if (r.optString("action", "on") != "on" || !r.optBoolean("enabled", true) || !at.isAfter(LocalDateTime.now())) continue
+                alarms.put(JSONObject().put("id", newId()).put("at", "%02d:%02d".format(at.hour, at.minute)).put("dur", 0)
+                    .put("days", JSONArray()).put("date", at.toLocalDate().toString()).put("mode", r.opt("mode") ?: "keep")
+                    .put("value", r.opt("value") ?: JSONObject.NULL).put("enabled", true))
+            } catch (_: Exception) {}
+        }
+        data.remove("weekly"); data.remove("once")
+        return true
     }
 
     private fun save() {
@@ -53,44 +86,79 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
         tmp.renameTo(file)
     }
 
-    private fun list(kind: String): JSONArray = data.getJSONArray(kind)
-    private fun find(kind: String, id: String): JSONObject? {
-        val a = list(kind)
+    private fun newId() = "%08x".format(kotlin.random.Random.nextInt())
+    private fun list(): JSONArray = data.getJSONArray("alarms")
+    private fun find(id: String): JSONObject? {
+        val a = list()
         for (i in 0 until a.length()) if (a.getJSONObject(i).optString("id") == id) return a.getJSONObject(i)
         return null
     }
 
-    @Synchronized fun add(kind: String, body: JSONObject): JSONObject {
+    /** one-time alarm switched on / edited: it fires at the next time it comes round */
+    private fun fixDate(it: JSONObject) {
+        val once = (it.optJSONArray("days")?.length() ?: 0) == 0
+        if (once && it.optBoolean("enabled", true)) {
+            val at = try { LocalTime.parse(it.getString("at")) } catch (_: Exception) { return }
+            it.put("date", AlarmLogic.nextDate(at, LocalDateTime.now()).toString())
+        } else if (!once) it.remove("date")
+    }
+
+    @Synchronized fun add(body: JSONObject): JSONObject {
         val it = JSONObject(body.toString())
-        it.put("id", "%08x".format(kotlin.random.Random.nextInt()))
+        it.put("id", newId())
         if (!it.has("enabled")) it.put("enabled", true)
-        list(kind).put(it); save()
+        if (!it.has("dur")) it.put("dur", 60)
+        fixDate(it)
+        list().put(it); save()
         return it
     }
 
-    @Synchronized fun update(kind: String, id: String, patch: JSONObject): JSONObject? {
-        val it = find(kind, id) ?: return null
+    @Synchronized fun update(id: String, patch: JSONObject): JSONObject? {
+        val it = find(id) ?: return null
         for (k in patch.keys()) it.put(k, patch.get(k))
-        it.put("id", id); save()
+        it.put("id", id)
+        fixDate(it); save()
         return it
     }
 
-    @Synchronized fun delete(kind: String, id: String) {
-        val a = list(kind)
+    @Synchronized fun delete(id: String) {
+        val a = list()
         for (i in a.length() - 1 downTo 0) if (a.getJSONObject(i).optString("id") == id) a.remove(i)
         save()
     }
 
-    @Synchronized fun setOffTimer(minutes: Double?) {
-        data.put("off_timer", if (minutes != null && minutes > 0) nowS() + minutes * 60 else JSONObject.NULL); save()
+    @Synchronized fun setOffTimer(minutes: Double?, src: String = "countdown") {
+        if (minutes != null && minutes > 0) data.put("off_timer", nowS() + minutes * 60).put("off_src", src)
+        else data.put("off_timer", JSONObject.NULL).remove("off_src")
+        save()
     }
+
+    private fun offAt(): Double? = if (data.isNull("off_timer")) null else data.optDouble("off_timer")
+
+    /** from the 5-minute warning: keep it warm N more minutes, or (null) keep it on until stopped */
+    @Synchronized fun snooze(minutes: Double?): JSONObject {
+        val t = nowS()
+        val src = data.optString("off_src", "countdown")
+        if (minutes == null || minutes <= 0) {
+            data.put("off_timer", JSONObject.NULL).remove("off_src")
+            history.put(JSONObject().put("t", iso(LocalDateTime.now(), true)).put("action", "keep on").put("src", src).put("result", "until stopped"))
+        } else {
+            data.put("off_timer", AlarmLogic.extend(offAt(), t, minutes)).put("off_src", src)
+            history.put(JSONObject().put("t", iso(LocalDateTime.now(), true)).put("action", "snooze").put("src", src).put("result", "+${minutes.toInt()} min"))
+        }
+        save()
+        return snapshot()
+    }
+
+    /** the planned switch-off while it is inside the warning window, else null */
+    @Synchronized fun warnAt(): Double? = offAt()?.takeIf { AlarmLogic.warnDue(it, nowS()) && heater.running }
 
     @Synchronized fun setMaxRun(hours: Double) { data.put("max_run_hours", maxOf(0.0, hours)); save() }
 
     @Synchronized fun snapshot(): JSONObject {
         if (drain()) save()
         val o = JSONObject(data.toString())
-        o.put("next", nextEvents(6))
+        o.put("next", nextEvents(6)).put("warn_s", AlarmLogic.WARN_S)
         val h = JSONArray()
         for (i in maxOf(0, history.length() - 15) until history.length()) h.put(history.get(i))
         return o.put("history", h)
@@ -98,38 +166,28 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
 
     private val zone get() = ZoneId.systemDefault()
     private fun epoch(t: LocalDateTime) = t.atZone(zone).toEpochSecond().toDouble()
+    private fun local(s: Double) = LocalDateTime.ofInstant(Instant.ofEpochMilli((s * 1000).toLong()), zone)
+
+    private fun alarm(j: JSONObject): HeatAlarm? = try {
+        val d = j.optJSONArray("days") ?: JSONArray()
+        HeatAlarm(j.getString("id"), LocalTime.parse(j.getString("at")), j.optInt("dur", 0),
+            (0 until d.length()).map { d.getInt(it) }.toSet(),
+            j.optString("date").takeIf { it.isNotEmpty() }?.let { LocalDate.parse(it) }, j.optBoolean("enabled", true))
+    } catch (_: Exception) { null }
 
     private fun events(a: Double, b: Double): List<Pair<Double, JSONObject>> {
         val out = mutableListOf<Pair<Double, JSONObject>>()
-        var day = Instant.ofEpochMilli((a * 1000).toLong()).atZone(zone).toLocalDate().minusDays(1)
-        val endDay = Instant.ofEpochMilli((b * 1000).toLong()).atZone(zone).toLocalDate()
-        val weekly = list("weekly")
-        while (!day.isAfter(endDay)) {
-            val wd = day.dayOfWeek.value - 1  // Mon = 0
-            for (i in 0 until weekly.length()) {
-                val r = weekly.getJSONObject(i)
-                if (!r.optBoolean("enabled", true)) continue
-                val days = r.optJSONArray("days") ?: continue
-                if ((0 until days.length()).none { days.getInt(it) == wd }) continue
-                val on = day.atTime(LocalTime.parse(r.getString("on")))
-                var off = day.atTime(LocalTime.parse(r.getString("off")))
-                if (!off.isAfter(on)) off = off.plusDays(1)
-                val src = "weekly ${r.getString("on")}-${r.getString("off")}"
-                out += epoch(on) to JSONObject().put("action", "on").put("mode", r.opt("mode") ?: JSONObject.NULL)
-                    .put("value", r.opt("value") ?: JSONObject.NULL).put("src", src)
-                out += epoch(off) to JSONObject().put("action", "off").put("src", src)
-            }
-            day = day.plusDays(1)
+        val from = local(a); val to = local(b)
+        val alarms = list()
+        for (i in 0 until alarms.length()) {
+            val j = alarms.getJSONObject(i)
+            val al = alarm(j) ?: continue
+            for (t in AlarmLogic.starts(al, from, to))
+                out += epoch(t) to JSONObject().put("action", "on").put("mode", j.opt("mode") ?: JSONObject.NULL)
+                    .put("value", j.opt("value") ?: JSONObject.NULL).put("src", "timer ${j.getString("at")}")
+                    .put("alarm_id", al.id).put("dur", al.durMin).put("once", al.days.isEmpty())
         }
-        val once = list("once")
-        for (i in 0 until once.length()) {
-            val o = once.getJSONObject(i)
-            if (!o.optBoolean("enabled", true)) continue
-            val at = try { LocalDateTime.parse(o.getString("at")) } catch (_: Exception) { continue }
-            out += epoch(at) to JSONObject().put("action", o.optString("action", "on")).put("mode", o.opt("mode") ?: JSONObject.NULL)
-                .put("value", o.opt("value") ?: JSONObject.NULL).put("src", "once ${o.getString("at")}").put("once_id", o.getString("id"))
-        }
-        if (!data.isNull("off_timer")) out += data.getDouble("off_timer") to JSONObject().put("action", "off").put("src", "countdown")
+        offAt()?.let { out += it to JSONObject().put("action", "off").put("src", data.optString("off_src", "countdown")).put("off_timer", true) }
         return out.filter { it.first > a && it.first <= b }.sortedBy { it.first }
     }
 
@@ -137,9 +195,8 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
         val t = nowS()
         val a = JSONArray()
         for ((at, e) in events(t, t + 8 * 86400).take(n)) {
-            a.put(JSONObject().put("at", iso(LocalDateTime.ofInstant(Instant.ofEpochSecond(at.toLong()), zone)))
-                .put("action", e.getString("action")).put("mode", e.opt("mode") ?: JSONObject.NULL)
-                .put("value", e.opt("value") ?: JSONObject.NULL).put("src", e.getString("src")))
+            a.put(JSONObject().put("at", iso(local(at))).put("action", e.getString("action")).put("mode", e.opt("mode") ?: JSONObject.NULL)
+                .put("value", e.opt("value") ?: JSONObject.NULL).put("src", e.getString("src")).put("dur", e.opt("dur") ?: JSONObject.NULL))
         }
         return a
     }
@@ -160,19 +217,21 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
             .put("src", e.getString("src")).put("result", result))
     }
 
+    private fun hhmm(s: Double) = local(s).let { "%02d:%02d".format(it.hour, it.minute) }
+
     @Synchronized fun tick() {
         val t = nowS()
         var changed = drain()
         for ((at, e) in events(last, t)) {
-            if (e.has("once_id")) find("once", e.getString("once_id"))?.put("enabled", false)
-            if (e.getString("src") == "countdown") data.put("off_timer", JSONObject.NULL)
+            if (e.optBoolean("once")) find(e.getString("alarm_id"))?.put("enabled", false)
+            if (e.optBoolean("off_timer")) data.put("off_timer", JSONObject.NULL).remove("off_src")
             changed = true
-            // the app was not running (phone restarted, app killed): don't fire old timers late,
-            // only a missed countdown off still runs
-            if (t - at > STALE_SEC && e.getString("src") != "countdown") { record(e, "missed (app was not running)"); continue }
+            // the app was not running (phone restarted, app killed): don't fire old alarms late,
+            // only a missed switch-off still runs
+            if (t - at > STALE_SEC && !e.optBoolean("off_timer")) { record(e, "missed (app was not running)"); continue }
             // Auto thermostat on: it alone switches the heater, timers are locked
             if (thermostat?.enabled == true) { record(e, "skipped (auto thermostat on)"); continue }
-            e.put("deadline", t + 600)
+            e.put("deadline", t + 600).put("at", at)
             pend += e
         }
         last = t
@@ -191,7 +250,18 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
             if (thermostat?.enabled == true) { record(e, "skipped (auto thermostat on)"); pend.remove(e); changed = true; continue }
             if (exec(e)) {
                 record(e, "ok"); pend.remove(e); changed = true
-                event?.invoke("Heater ${if (e.getString("action") == "on") "started" else "stopped"} by ${e.getString("src").let { if (it == "countdown") "the countdown" else if (it.startsWith("safety")) "the $it" else "timer $it" }}")
+                val src = e.getString("src")
+                if (e.getString("action") == "on") {
+                    // the alarm's run time becomes the switch-off countdown (snooze / keep on work on it)
+                    val dur = e.optInt("dur", 0)
+                    if (dur > 0) data.put("off_timer", e.getDouble("at") + dur * 60).put("off_src", src)
+                    else data.put("off_timer", JSONObject.NULL).remove("off_src")
+                    event?.invoke("Heater started by $src · " + if (dur > 0) "switches off at ${hhmm(e.getDouble("at") + dur * 60)}" else "stays on until you stop it")
+                } else event?.invoke("Heater stopped by " + when {
+                    src == "countdown" -> "the countdown"
+                    src.startsWith("safety") -> "the $src"
+                    else -> src
+                })
             }
             else if (t > e.getDouble("deadline")) {
                 record(e, "FAILED (heater unreachable)"); pend.remove(e); changed = true
