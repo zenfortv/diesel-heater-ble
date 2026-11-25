@@ -14,19 +14,27 @@ screen off): [download the APK from Releases](../../releases/latest)**
 > The authors, contributors and **the publisher** (GitHub "zenfortv") take no responsibility for any damage. Read the [safety checklist](#safety-checklist) first.
 
 <p>
-  <img src="docs/phone.png" alt="Phone view: room temperature, Turn on button, thermostat" width="260">
-  &nbsp;
-  <img src="docs/desktop.png" alt="Wide view: home, timers and heater settings side by side" width="520">
+  <img src="docs/phone.png" alt="Phone view: room temperature, Turn on button, thermostat" width="200">
+  <img src="docs/timers.png" alt="Timers: alarm-clock list with on and off timers" width="200">
+  <img src="docs/timer-off.png" alt="Timer sheet with the Turn on / Turn off switch" width="200">
+  <img src="docs/switch-on-in.png" alt="Home: Switch on in 1 h countdown" width="200">
 </p>
 
 *(screenshots from the built-in demo mode)*
+
+### New in v2.2
+- **Timers can turn the heater on or off.** Each timer has a **Turn on / Turn off** switch: for example on at 06:45
+  for 45 minutes on weekdays, and off at 23:30 every day.
+- **Home: "Switch on/off in".** One countdown wheel: if the heater is running it switches it **off** after the time,
+  if it is off it switches it **on**. Without a connected heater the button is locked and reads **Not connected**.
+- Faster start-up animation in the Android app.
 
 ## How to use it
 1. On an **Android phone, open the link above in Chrome**. iPhone Safari has no Web Bluetooth, so it won't work there.
 2. Chrome menu ⋮ → **Add to Home screen**. From then on it opens like a normal app, and it also works offline.
 3. Switch the heater on at the mains and **close the AirHeaterBLE app**. The heater accepts only one Bluetooth connection at a time.
 4. Tap **Connect via Bluetooth** and pick your heater from the list (named like `BYD-…`).
-5. Tap **Turn on**. Use the thermostat (8–36 °C) or the power level (1–10), and **Switch off in** 30 min / 1 h / 2 h / 4 h.
+5. Tap **Turn on**. Use the thermostat (8–36 °C) or the power level (1–10), and **Switch off in** (or **Switch on in** when it's off) 30 min / 45 min / 1 h / 1 h 30, or any time on the wheel.
 
 Each morning: open the home-screen icon, tap Connect, then tap Turn on. That takes about 5 seconds, and you need to be within Bluetooth range (~10 m).
 
@@ -34,9 +42,10 @@ Not sure yet? Tap **Try the demo**. It runs a simulated heater and sends nothing
 
 ### What the tabs do
 - **Home**: power, thermostat or power level, room and heater temperature, battery voltage, faults explained in plain words.
-- **Timers**: like a phone alarm clock. Pick the time on a wheel, how long it stays on, and optionally the days it repeats.
-  5 minutes before it switches off you can keep it warm **+10 min, +30 min, +1 h** or **until you stop it**
-  (a notification in the Android app). Home has a "Switch off in" wheel for the heater that is already on.
+- **Timers**: like a phone alarm clock. Pick **Turn on** or **Turn off**, the time on a wheel, how long it stays on
+  (Turn on only), and optionally the days it repeats. 5 minutes before it switches off you can keep it warm
+  **+10 min, +30 min, +1 h** or **until you stop it** (a notification in the Android app). Home has a
+  "Switch on/off in" wheel: off if the heater runs, on if it is off, locked while no heater is connected.
   In direct Bluetooth mode timers only run *while the page is open*.
 - **Heater**: the heater's **built-in daily timer** (start time + run minutes). It is stored inside the heater, so it fires with no phone around (still being tested, see below). Also the heater clock, auto start/stop and safety auto-off.
 
