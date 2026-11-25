@@ -238,12 +238,12 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
     </div>
 
     <div class="card" id="offCard">
-      <div class="row between"><h2 id="offH">Switch off in</h2><button class="link" id="offCancel" hidden>Cancel</button></div>
+      <div class="row between"><h2 id="offH">Switch on/off in</h2><button class="link" id="offCancel" hidden>Cancel</button></div>
       <p class="lockNote" hidden></p>
       <div class="stack" id="offSet">
         <div class="wheel" id="offWheel"></div>
         <div class="qchips" id="offQuick"><button data-m="30">30 min</button><button data-m="45">45 min</button><button data-m="60">1 h</button><button data-m="90">1 h 30</button></div>
-        <button class="primary" id="offStart">Switch off in 1 h</button>
+        <button class="primary" id="offStart" disabled>Not connected</button>
       </div>
       <div class="stack" id="offRun" hidden>
         <div class="offBig"><b id="offAt">--:--</b><span id="offIn"></span></div>
@@ -261,11 +261,11 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
     <div class="banner info" id="localNote" hidden></div>
     <div class="banner info" id="timersLocked" hidden>🔒 <b>Locked: Auto thermostat is on.</b> Timers don't switch the heater while it's on.
       Switch Auto thermostat off on Home to use them again.</div>
-    <div class="card" id="alarmCard">
+    <div class="card" id="timersCard">
       <div class="row between"><h2>Timers</h2><button class="small primary" id="addAlarm">+ Add</button></div>
       <p class="lockNote" hidden></p>
-      <p class="mute">Like an alarm clock: the heater turns on at the time and off again after the run time.
-        5 minutes before it switches off you can keep it warm longer.</p>
+      <p class="mute">Like an alarm clock: a timer turns the heater on at its time (and off again after the run time),
+        or turns it off. 5 minutes before a switch-off you can keep it warm longer.</p>
       <div class="list" id="alarmList"></div>
     </div>
     <div class="card">
@@ -453,15 +453,16 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 
 <dialog id="dlgAlarm"><form method="dialog" class="sheet" id="alarmForm">
   <h3 id="aTitle">New timer</h3>
-  <h2>Turn on at</h2>
+  <div class="seg" id="aAct"><button type="button" data-a="on">Turn on</button><button type="button" data-a="off">Turn off</button></div>
+  <h2 id="aAtH">Turn on at</h2>
   <div class="wheel big" id="aTime"></div>
-  <h2>Keep on for</h2>
-  <div class="wheel" id="aDur"></div>
-  <div class="qchips" id="aQuick"><button type="button" data-m="30">30 min</button><button type="button" data-m="45">45 min</button><button type="button" data-m="60">1 h</button><button type="button" data-m="0">Until I stop it</button></div>
+  <h2 class="aOn">Keep on for</h2>
+  <div class="wheel aOn" id="aDur"></div>
+  <div class="qchips aOn" id="aQuick"><button type="button" data-m="30">30 min</button><button type="button" data-m="45">45 min</button><button type="button" data-m="60">1 h</button><button type="button" data-m="0">Until I stop it</button></div>
   <h2>Repeat</h2>
   <div class="chips" id="aDays"></div>
   <p class="mute" id="aHint"></p>
-  <div class="grid2"><label class="f">Set to<select id="aMode"><option value="keep">Keep last setting</option><option value="temp">Thermostat °C</option><option value="level">Power level</option></select></label>
+  <div class="grid2 aOn"><label class="f">Set to<select id="aMode"><option value="keep">Keep last setting</option><option value="temp">Thermostat °C</option><option value="level">Power level</option></select></label>
     <label class="f" id="aValWrap">Value<input type="number" id="aVal" inputmode="numeric"></label></div>
   <div class="grid2"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="save">Save</button></div>
   <button class="danger" value="delete" id="aDel" formnovalidate>Delete timer</button>
@@ -777,7 +778,7 @@ const rid = () => Math.random().toString(16).slice(2, 10);
 class LocalHub {
   constructor(dev, ns, demo) {
     this.dev = dev; this.ns = ns; this.demo = demo;
-    this.data = {alarms: [], off_timer: null, max_run_hours: 0, ...store.get(ns + "sched", {})};
+    this.data = {alarms: [], off_timer: null, on_timer: null, max_run_hours: 0, ...store.get(ns + "sched", {})};
     this.history = store.get(ns + "hist", []);
     if (this.migrate()) this.save();
     this.pend = []; this.last = now(); this.onSince = null;
@@ -812,6 +813,7 @@ class LocalHub {
     else { this.data.off_timer = null; delete this.data.off_src; }
     this.save();
   }
+  setOn(minutes) { this.data.on_timer = minutes > 0 ? now() + minutes * 60 : null; this.save(); }
   // from the switch-off warning: N more minutes after the planned time, or (0) on until stopped
   snooze(minutes) {
     const src = this.data.off_src || "countdown";
@@ -828,9 +830,11 @@ class LocalHub {
       for (const r of this.data.alarms) {
         if (r.enabled === false || (r.days?.length ? !r.days.includes(wd) : r.date !== ds)) continue;
         const t = new Date(day), [h, m] = r.at.split(":"); t.setHours(+h, +m, 0, 0);
-        out.push([t, {action: "on", mode: r.mode, value: r.value, src: `timer ${r.at}`, alarm_id: r.id, dur: r.dur || 0, once: !r.days?.length}]);
+        out.push([t, r.action === "off" ? {action: "off", src: `timer ${r.at}`, alarm_id: r.id, once: !r.days?.length}
+          : {action: "on", mode: r.mode, value: r.value, src: `timer ${r.at}`, alarm_id: r.id, dur: r.dur || 0, once: !r.days?.length}]);
       }
     }
+    if (this.data.on_timer) out.push([new Date(this.data.on_timer * 1000), {action: "on", mode: "keep", src: "countdown", dur: 0, on_timer: true}]);
     if (this.data.off_timer) out.push([new Date(this.data.off_timer * 1000), {action: "off", src: this.data.off_src || "countdown", off_timer: true}]);
     return out.filter(([t]) => t > start && t <= end).sort((x, y) => x[0] - y[0]);
   }
@@ -853,6 +857,7 @@ class LocalHub {
     for (const [at, e] of this.events(this.last, t)) {
       if (e.once) this.update(e.alarm_id, {enabled: false});
       if (e.off_timer) this.setOff(0);
+      if (e.on_timer) this.setOn(0);
       // the phone froze the page (screen off): don't fire old timers late when it wakes up,
       // only a missed switch-off still runs
       if (t - at / 1000 > STALE_SEC && !e.off_timer) { this.record(e, "missed (page was asleep)"); continue; }
@@ -872,6 +877,7 @@ class LocalHub {
         this.record(e, "ok"); this.pend.splice(this.pend.indexOf(e), 1);
         // the timer's run time becomes the switch-off countdown (snooze / keep on work on it)
         if (e.action === "on") { if (e.dur > 0) Object.assign(this.data, {off_timer: e.at + e.dur * 60, off_src: e.src}); else this.setOff(0); this.save(); }
+        else this.setOff(0);  // switched off: a pending switch-off countdown has nothing left to do
       }
       else if (t > e.deadline) { this.record(e, "FAILED (heater unreachable)"); this.pend.splice(this.pend.indexOf(e), 1); }
     }
@@ -880,7 +886,7 @@ class LocalHub {
     const d = this.dev, p = path.replace(/^\/?api\//, ""), ok = async pr => ({ok: !!await pr});
     switch (p) {
       case "state": return {heater: d.state, paused: d.paused, simulated: this.demo, schedule: this.snapshot()};
-      case "power": return ok(d.power(!!body.on));
+      case "power": { const r = await ok(d.power(!!body.on)); if (r.ok && body.on) this.setOn(0); return r; }
       case "level": return ok(d.setLevel(body.level));
       case "temperature": return ok(d.setTemperature(body.temperature));
       case "auto_start_stop": return ok(d.setAutoStartStop(!!body.on));
@@ -889,6 +895,7 @@ class LocalHub {
       case "set_clock": return ok(d.setClock(body.time));
       case "pause": await (body.paused ? d.disconnect() : d.connect()); return {ok: true};
       case "off_timer": this.setOff(body.minutes || 0); return this.snapshot();
+      case "on_timer": this.setOn(body.minutes || 0); return this.snapshot();
       case "snooze": return this.snooze(body.minutes || 0);
       case "max_run": this.data.max_run_hours = Math.max(0, +body.hours || 0); this.save(); return this.snapshot();
       case "schedule": return this.snapshot();
@@ -1039,14 +1046,24 @@ function render() {
 }
 
 function renderSched() {
-  const s = sched, t = now(), off = s.off_timer;
+  const s = sched, t = now(), off = s.off_timer, onT = s.on_timer;
   const running = !!S.running_state || [1, 2, 3].includes(S.running_step);
-  // switch-off countdown, its 5-minute warning and the snooze buttons
-  $("offSet").hidden = !!off; $("offRun").hidden = !off; $("offCancel").hidden = !off;
-  const warn = !!off && running && off - t <= (s.warn_s || 300);
+  const conn = !!MODE && !!S.connected && !S.paused;
+  // Home countdown: switches the heater off if it runs, on if it is off; locked while the heater is not connected
+  const cd = onT || off;
+  $("offSet").hidden = !!cd; $("offRun").hidden = !cd; $("offCancel").hidden = !cd;
+  $("snoozeBtns").hidden = !!onT;
+  const warn = !onT && !!off && running && off - t <= (s.warn_s || 300);
   $("offCard").classList.toggle("warn", warn);
-  $("offH").textContent = !off ? "Switch off in" : warn ? "Switching off soon" : "Switches off at";
-  if (off) {
+  $("offH").textContent = onT ? "Switches on at" : off ? (warn ? "Switching off soon" : "Switches off at") : !conn ? "Switch on/off in" : running ? "Switch off in" : "Switch on in";
+  cdAction = running ? "off" : "on";
+  $("offStart").disabled = !conn;
+  $("offStart").textContent = !conn ? "Not connected" : `${running ? "Switch off" : "Switch on"} in ${durTxt(offWheel.get())}`;
+  if (onT) {
+    $("offAt").textContent = clock(onT);
+    $("offIn").textContent = onT > t ? "in " + fmtIn(onT - t) : "now";
+    $("offSrc").textContent = "The heater starts with its last setting.";
+  } else if (off) {
     $("offAt").textContent = clock(off);
     $("offIn").textContent = off > t ? "in " + fmtIn(off - t) : "now";
     $("offSrc").textContent = (s.off_src && s.off_src !== "countdown" ? `Set by the ${s.off_src}. ` : "") + "Keep it warm longer:";
@@ -1058,12 +1075,12 @@ function renderSched() {
   const val = r => r.mode === "temp" && r.value ? `${r.value}°C` : r.mode === "level" && r.value ? `level ${r.value}` : "";
   $("alarmList").innerHTML = (s.alarms || []).length ? s.alarms.slice().sort((a, b) => toMin(a.at) - toMin(b.at)).map(r => `
     <div class="item alarm ${r.enabled === false ? "dim" : ""}"><button class="main" data-alarm="${r.id}">
-      <div class="tt">${r.at}${r.dur ? `<small>→ ${hm((toMin(r.at) + r.dur) % 1440)}</small>` : ""}</div>
-      <div class="s">${[durTxt(r.dur), daysTxt(r), val(r)].filter(Boolean).join(" · ")}</div></button>
+      <div class="tt">${r.at}${r.action === "off" ? "<small>off</small>" : r.dur ? `<small>→ ${hm((toMin(r.at) + r.dur) % 1440)}</small>` : ""}</div>
+      <div class="s">${(r.action === "off" ? ["Turns off", daysTxt(r)] : [durTxt(r.dur), daysTxt(r), val(r)]).filter(Boolean).join(" · ")}</div></button>
       <label class="sw"><input type="checkbox" data-atoggle="${r.id}" ${r.enabled === false ? "" : "checked"}><i></i></label></div>`).join("")
-    : `<p class="empty">No timers yet. Tap “+ Add”: for example on at 07:00 for 45 minutes.</p>`;
+    : `<p class="empty">No timers yet. Tap “+ Add”: for example on at 07:00 for 45 minutes, or off at 23:30.</p>`;
   $("nextList").innerHTML = s.next.length ? s.next.map(e => `
-    <div class="item"><div><div class="t">${whenTxt(e.at)} · ${esc(evLabel(e))}</div><div class="s">${esc(e.src)}${e.action === "on" ? " · " + durTxt(e.dur) : ""}</div></div>
+    <div class="item"><div><div class="t">${whenTxt(e.at)} · ${esc(evLabel(e))}</div><div class="s">${esc(e.src)}${e.action === "on" && e.dur != null ? " · " + durTxt(e.dur) : ""}</div></div>
       <span class="dot ${e.action === "on" ? "ok" : ""}"></span></div>`).join("") : `<p class="empty">Nothing scheduled</p>`;
   const n = s.next[0];
   $("nextHomeTxt").textContent = S.smart?.enabled ? "Paused while Auto thermostat is on" : n ? `${evLabel(n)} · ${whenTxt(n.at)} (in ${fmtIn(new Date(n.at) / 1000 - t)})` : "Nothing scheduled";
@@ -1202,8 +1219,9 @@ $("minus").onclick = () => step(-1);
 $("plus").onclick = () => step(1);
 const schedReply = s => { if (s?.alarms) { sched = s; renderSched(); } };
 $("offQuick").onclick = e => { const m = e.target.closest("button")?.dataset.m; if (m) offWheel.set(+m, true); };
-$("offStart").onclick = () => act(api("api/off_timer", "POST", {minutes: offWheel.get()}), `Off in ${fmtIn(offWheel.get() * 60)}`).then(schedReply);
-$("offCancel").onclick = () => act(api("api/off_timer", "POST", {minutes: null}), "Countdown cancelled").then(schedReply);
+var cdAction = "off";
+$("offStart").onclick = () => act(api(`api/${cdAction}_timer`, "POST", {minutes: offWheel.get()}), `${cdAction === "on" ? "On" : "Off"} in ${fmtIn(offWheel.get() * 60)}`).then(schedReply);
+$("offCancel").onclick = () => act(api(`api/${sched.on_timer ? "on" : "off"}_timer`, "POST", {minutes: null}), "Countdown cancelled").then(schedReply);
 $("snoozeBtns").onclick = e => {
   const b = e.target.closest("button"); if (!b) return;
   const m = +b.dataset.s;
@@ -1322,14 +1340,22 @@ function TimeWheel(host, onChange) {
 // Home: switch off in…
 const offWheel = DurWheel($("offWheel"), () => {
   const m = offWheel?.get?.() ?? 60;
-  $("offStart").textContent = `Switch off in ${durTxt(m)}`;
+  if (!$("offStart").disabled) $("offStart").textContent = `${cdAction === "on" ? "Switch on" : "Switch off"} in ${durTxt(m)}`;
   $("offQuick").querySelectorAll("button").forEach(b => b.classList.toggle("on", +b.dataset.m === m));
 });
 offWheel.set(store.get("offMin", 60));
 $("offStart").addEventListener("click", () => store.set("offMin", offWheel.get()));
 
 // timer sheet
-let editId = null, aForever = false;
+let editId = null, aForever = false, aAction = "on";
+function setAAction(a) {
+  aAction = a;
+  $("aAct").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.a === a));
+  document.querySelectorAll("#dlgAlarm .aOn").forEach(el => { el.hidden = a === "off"; });
+  $("aAtH").textContent = a === "off" ? "Turn off at" : "Turn on at";
+  alarmHint();
+}
+$("aAct").onclick = e => { const b = e.target.closest("button"); if (b) setAAction(b.dataset.a); };
 $("aDays").innerHTML = DAYS.map((d, i) => `<label><input type="checkbox" value="${i}"><span>${d[0]}${d[1]}</span></label>`).join("");
 const aTime = TimeWheel($("aTime"), alarmHint);
 const aDur = DurWheel($("aDur"), () => { aForever = false; alarmHint(); });
@@ -1340,6 +1366,7 @@ function alarmHint() {
   $("aQuick").querySelectorAll("button").forEach(b => b.classList.toggle("on", aForever ? b.dataset.m === "0" : +b.dataset.m === dur));
   $("aDur").style.opacity = aForever ? .35 : 1;
   const when = days.length ? daysTxt({days}) : nowMin() < toMin(at) ? "Today" : "Tomorrow";
+  if (aAction === "off") { $("aHint").textContent = `${when[0].toUpperCase() + when.slice(1)} off at ${at}.` + (days.length ? "" : " No day picked = only once."); return; }
   $("aHint").textContent = `${when[0].toUpperCase() + when.slice(1)} on at ${at}, ` + (dur ? `off at ${hm((toMin(at) + dur) % 1440)} (${durTxt(dur)}).` : "stays on until you stop it.") +
     (days.length ? "" : " No day picked = only once.");
 }
@@ -1363,7 +1390,7 @@ function openAlarm(id) {
   const dur = r ? r.dur : last.dur;
   aForever = !dur;
   aTime.set(r?.at || last.at); aDur.set(dur || 45);
-  alarmHint();
+  setAAction(r?.action === "off" ? "off" : "on");
 }
 $("addAlarm").onclick = () => openAlarm(null);
 document.addEventListener("click", e => { const a = e.target.closest("[data-alarm]"); if (a) openAlarm(a.dataset.alarm); });
@@ -1377,10 +1404,12 @@ $("dlgAlarm").addEventListener("close", async () => {
   if (v !== "save") return;
   const days = [...document.querySelectorAll("#aDays input:checked")].map(i => +i.value);
   const mode = $("aMode").value;
-  const body = {at: aTime.get(), dur: aForever ? 0 : aDur.get(), days, mode, value: mode === "keep" ? null : +$("aVal").value, enabled: true};
-  store.set("lastAlarm", {at: body.at, dur: body.dur});
+  const off = aAction === "off";
+  const body = off ? {at: aTime.get(), action: "off", dur: 0, days, mode: "keep", value: null, enabled: true}
+    : {at: aTime.get(), action: "on", dur: aForever ? 0 : aDur.get(), days, mode, value: mode === "keep" ? null : +$("aVal").value, enabled: true};
+  if (!off) store.set("lastAlarm", {at: body.at, dur: body.dur});
   await act(editId ? api(`api/schedule/alarms/${editId}`, "PATCH", body) : api("api/schedule/alarms", "POST", body),
-    `On at ${body.at}` + (body.dur ? `, off after ${durTxt(body.dur)}` : ""));
+    off ? `Off at ${body.at}` : `On at ${body.at}` + (body.dur ? `, off after ${durTxt(body.dur)}` : ""));
   load();
 });
 
@@ -1577,7 +1606,7 @@ $("autoSw").onchange = async e => {
 };
 
 // while the Auto thermostat is on, nothing else may switch the heater: grey these out with the reason
-const LOCKS = {offCard: "🔒 Off: Auto thermostat is on.", alarmCard: "",
+const LOCKS = {offCard: "🔒 Off: Auto thermostat is on.", timersCard: "",
   btCard: "🔒 Off: Auto thermostat is on. Disable the heater's own timer too if it is set, or it will start the heater by itself.",
   optCard: "🔒 Safety auto-off is not used while Auto thermostat is on."};
 function lockAll(on) {

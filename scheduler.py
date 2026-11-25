@@ -41,7 +41,7 @@ class Scheduler:
     def __init__(self, heater: HeaterLink, path: Path) -> None:
         self.heater = heater
         self.path = path
-        self.data: dict[str, Any] = {"alarms": [], "off_timer": None, "max_run_hours": 0}
+        self.data: dict[str, Any] = {"alarms": [], "off_timer": None, "on_timer": None, "max_run_hours": 0}
         self.history: list[dict] = []
         self._pending: list[dict] = []
         self._last = time.time()
@@ -113,6 +113,11 @@ class Scheduler:
             self.data.pop("off_src", None)
         self.save()
 
+    def set_on_timer(self, minutes: float | None) -> None:
+        """Home "Switch on in": start the heater (last setting) after N minutes; None cancels"""
+        self.data["on_timer"] = time.time() + minutes * 60 if minutes else None
+        self.save()
+
     def snooze(self, minutes: float | None) -> None:
         """keep it warm N more minutes after the planned switch-off, or (None) on until stopped"""
         src = self.data.get("off_src", "countdown")
@@ -145,10 +150,16 @@ class Scheduler:
                 if not r.get("days") and r.get("date") != day.isoformat():
                     continue
                 t = datetime.combine(day, datetime.strptime(r["at"], "%H:%M").time())
+                if r.get("action", "on") == "off":
+                    ev.append((t, {"action": "off", "src": f"timer {r['at']}", "alarm_id": r["id"], "once": not r.get("days")}))
+                    continue
                 ev.append((t, {"action": "on", "mode": r.get("mode", "keep"), "value": r.get("value"),
                                "src": f"timer {r['at']}", "alarm_id": r["id"], "dur": r.get("dur", 0),
                                "once": not r.get("days")}))
             day += timedelta(days=1)
+        nt = self.data.get("on_timer")
+        if nt:
+            ev.append((datetime.fromtimestamp(nt), {"action": "on", "mode": "keep", "src": "countdown", "dur": 0, "on_timer": True}))
         ot = self.data.get("off_timer")
         if ot:
             ev.append((datetime.fromtimestamp(ot), {"action": "off", "src": self.data.get("off_src", "countdown"), "off_timer": True}))
@@ -192,6 +203,8 @@ class Scheduler:
                 self.update(e["alarm_id"], {"enabled": False})
             if e.get("off_timer"):
                 self.set_off_timer(None)
+            if e.get("on_timer"):
+                self.set_on_timer(None)
             if now - t.timestamp() > STALE_S and not e.get("off_timer"):
                 self._record(e, "missed (server was not running)")
                 continue
@@ -225,6 +238,8 @@ class Scheduler:
                         self.data["off_timer"] = None
                         self.data.pop("off_src", None)
                     self.save()
+                else:  # switched off: a pending switch-off countdown has nothing left to do
+                    self.set_off_timer(None)
             elif now > e["deadline"]:
                 self._record(e, "FAILED (heater unreachable)")
                 self._pending.remove(e)

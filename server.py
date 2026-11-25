@@ -137,6 +137,11 @@ def build_app(cfg: dict) -> web.Application:
         sched.snooze((await req.json()).get("minutes"))
         return web.json_response(sched.snapshot())
 
+    @r.post("/api/on_timer")
+    async def on_timer(req):
+        sched.set_on_timer((await req.json()).get("minutes"))
+        return web.json_response(sched.snapshot())
+
     @r.post("/api/off_timer")
     async def off_timer(req):
         sched.set_off_timer((await req.json()).get("minutes"))

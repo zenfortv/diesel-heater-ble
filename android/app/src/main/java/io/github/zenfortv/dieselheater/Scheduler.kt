@@ -13,8 +13,9 @@ import java.time.ZoneId
  *  and snooze, and the safety cap. Same data and API as LocalHub in web/index.html and scheduler.py,
  *  running in the background service so it fires with the screen off.
  *
- *  data: alarms [{id, at "07:00", dur minutes (0 = until stopped), days [0..6] (empty = once), date, mode, value, enabled}],
- *        off_timer epoch | null, off_src label of who set it, max_run_hours */
+ *  data: alarms [{id, at "07:00", action "on"|"off", dur minutes (0 = until stopped, on only), days [0..6] (empty = once),
+ *        date, mode, value, enabled}], off_timer epoch | null, off_src label of who set it,
+ *        on_timer epoch | null (Home "Switch on in"), max_run_hours */
 class Scheduler(private val file: File, private val heater: HeaterLink) {
     private var data = JSONObject()
     private var history = JSONArray()
@@ -47,6 +48,7 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
         } catch (_: Exception) {}
         if (!data.has("alarms")) data.put("alarms", JSONArray())
         if (!data.has("off_timer")) data.put("off_timer", JSONObject.NULL)
+        if (!data.has("on_timer")) data.put("on_timer", JSONObject.NULL)
         if (!data.has("max_run_hours")) data.put("max_run_hours", 0)
         if (migrate()) save()
     }
@@ -133,7 +135,14 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
         save()
     }
 
+    /** Home "Switch on in": the heater is started (last setting) after [minutes]; null cancels */
+    @Synchronized fun setOnTimer(minutes: Double?) {
+        data.put("on_timer", if (minutes != null && minutes > 0) nowS() + minutes * 60 else JSONObject.NULL)
+        save()
+    }
+
     private fun offAt(): Double? = if (data.isNull("off_timer")) null else data.optDouble("off_timer")
+    private fun onAt(): Double? = if (data.isNull("on_timer")) null else data.optDouble("on_timer")
 
     /** from the 5-minute warning: keep it warm N more minutes, or (null) keep it on until stopped */
     @Synchronized fun snooze(minutes: Double?): JSONObject {
@@ -182,11 +191,14 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
         for (i in 0 until alarms.length()) {
             val j = alarms.getJSONObject(i)
             val al = alarm(j) ?: continue
+            val off = j.optString("action", "on") == "off"
             for (t in AlarmLogic.starts(al, from, to))
-                out += epoch(t) to JSONObject().put("action", "on").put("mode", j.opt("mode") ?: JSONObject.NULL)
-                    .put("value", j.opt("value") ?: JSONObject.NULL).put("src", "timer ${j.getString("at")}")
-                    .put("alarm_id", al.id).put("dur", al.durMin).put("once", al.days.isEmpty())
+                out += epoch(t) to (if (off) JSONObject().put("action", "off")
+                    else JSONObject().put("action", "on").put("mode", j.opt("mode") ?: JSONObject.NULL)
+                        .put("value", j.opt("value") ?: JSONObject.NULL).put("dur", al.durMin))
+                    .put("src", "timer ${j.getString("at")}").put("alarm_id", al.id).put("once", al.days.isEmpty())
         }
+        onAt()?.let { out += it to JSONObject().put("action", "on").put("mode", "keep").put("src", "countdown").put("dur", 0).put("on_timer", true) }
         offAt()?.let { out += it to JSONObject().put("action", "off").put("src", data.optString("off_src", "countdown")).put("off_timer", true) }
         return out.filter { it.first > a && it.first <= b }.sortedBy { it.first }
     }
@@ -225,6 +237,7 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
         for ((at, e) in events(last, t)) {
             if (e.optBoolean("once")) find(e.getString("alarm_id"))?.put("enabled", false)
             if (e.optBoolean("off_timer")) data.put("off_timer", JSONObject.NULL).remove("off_src")
+            if (e.optBoolean("on_timer")) data.put("on_timer", JSONObject.NULL)
             changed = true
             // the app was not running (phone restarted, app killed): don't fire old alarms late,
             // only a missed switch-off still runs
@@ -257,11 +270,15 @@ class Scheduler(private val file: File, private val heater: HeaterLink) {
                     if (dur > 0) data.put("off_timer", e.getDouble("at") + dur * 60).put("off_src", src)
                     else data.put("off_timer", JSONObject.NULL).remove("off_src")
                     event?.invoke("Heater started by $src · " + if (dur > 0) "switches off at ${hhmm(e.getDouble("at") + dur * 60)}" else "stays on until you stop it")
-                } else event?.invoke("Heater stopped by " + when {
+                } else {
+                    // off: a switch-off countdown still pending has nothing left to do
+                    data.put("off_timer", JSONObject.NULL).remove("off_src")
+                    event?.invoke("Heater stopped by " + when {
                     src == "countdown" -> "the countdown"
                     src.startsWith("safety") -> "the $src"
                     else -> src
                 })
+                }
             }
             else if (t > e.getDouble("deadline")) {
                 record(e, "FAILED (heater unreachable)"); pend.remove(e); changed = true

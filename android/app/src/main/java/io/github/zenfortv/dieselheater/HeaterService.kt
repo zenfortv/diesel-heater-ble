@@ -226,18 +226,19 @@ class HeaterService : Service() {
         return when (p) {
             "state" -> JSONObject().put("heater", fullState()).put("paused", h.paused).put("simulated", false).put("schedule", sched.snapshot())
             "auto" -> {
-                if (b.optBoolean("on")) sched.setOffTimer(null)  // nothing else switches the heater while it is on
+                if (b.optBoolean("on")) { sched.setOffTimer(null); sched.setOnTimer(null) }  // nothing else switches the heater while it is on
                 val r = thermo.setEnabled(b.optBoolean("on")); onState(); ok(r)
             }
             // locked while the Auto thermostat is on (the page greys them out too)
-            "power", "level", "auto_start_stop", "builtin_timer", "off_timer", "snooze", "max_run" ->
+            "power", "level", "auto_start_stop", "builtin_timer", "off_timer", "on_timer", "snooze", "max_run" ->
                 if (thermo.enabled) JSONObject().put("ok", false).put("locked", true).put("error", "Locked while Auto thermostat is on")
                 else when (p) {
-                    "power" -> ok(h.power(b.optBoolean("on")))
+                    "power" -> ok(h.power(b.optBoolean("on")).also { if (it && b.optBoolean("on")) sched.setOnTimer(null) })
                     "level" -> ok(h.setLevel(b.optDouble("level")))
                     "auto_start_stop" -> ok(h.setAutoStartStop(b.optBoolean("on")))
                     "builtin_timer" -> ok(h.setBuiltinTimer(b.getString("start"), b.optInt("duration", 60), b.optBoolean("enabled")))
                     "off_timer" -> { sched.setOffTimer(if (b.isNull("minutes")) null else b.optDouble("minutes")); warnNote(sched.warnAt()); sched.snapshot() }
+                    "on_timer" -> { sched.setOnTimer(if (b.isNull("minutes")) null else b.optDouble("minutes")); sched.snapshot() }
                     "snooze" -> { snooze(if (b.isNull("minutes")) null else b.optDouble("minutes")); sched.snapshot() }
                     else -> { sched.setMaxRun(b.optDouble("hours", 0.0)); sched.snapshot() }
                 }
