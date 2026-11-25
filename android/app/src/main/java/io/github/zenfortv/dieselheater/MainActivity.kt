@@ -79,7 +79,7 @@ class MainActivity : Activity() {
     // at least 2.2 s so the drawing can finish, then fade out
     private fun hideSplash(now: Boolean = false) {
         val sp = splash ?: return
-        val wait = if (now) 0L else maxOf(0L, 2200L - (System.currentTimeMillis() - shownAt))
+        val wait = if (now) 0L else maxOf(0L, 2600L - (System.currentTimeMillis() - shownAt))
         sp.postDelayed({
             if (splash !== sp) return@postDelayed
             splash = null
