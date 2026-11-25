@@ -118,6 +118,10 @@ pull requests are off, but **forks are welcome**: see [CONTRIBUTING.md](CONTRIBU
 Control an AirHeaterBLE diesel heater (Vevor / BYD / generic Chinese) from the phone and laptop, with the
 on/off timers the official app lacks and automatic correction of the heater's drifting clock.
 
+## Support
+This project is free and stays free. If it keeps your van or cabin warm, you can buy me a coffee:
+**[ko-fi.com/zenfortv](https://ko-fi.com/zenfortv)**.
+
 ## The app (`web/index.html`)
 One self-contained page, installable as an app on Android ("Add to Home screen"). It picks its mode by itself:
 
