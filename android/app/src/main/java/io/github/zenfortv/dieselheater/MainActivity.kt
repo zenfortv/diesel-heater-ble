@@ -53,6 +53,12 @@ class MainActivity : Activity() {
         web.addJavascriptInterface(Bridge(), "HeaterApp")
         web.webViewClient = object : WebViewClient() {
             override fun onPageStarted(v: WebView, url: String?, f: android.graphics.Bitmap?) { loadFailed = false }
+            // the WebView (and its HeaterApp bridge) only ever shows the app's own page: links open in the browser
+            override fun shouldOverrideUrlLoading(v: WebView, req: WebResourceRequest): Boolean {
+                if (req.url.host == "127.0.0.1" && req.url.port == HeaterService.PORT) return false
+                try { startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, req.url)) } catch (_: Exception) {}
+                return true
+            }
             // the service may still be starting: retry until its page answers (the start-up screen hides the error page)
             override fun onReceivedError(v: WebView, req: WebResourceRequest, err: WebResourceError) {
                 if (req.isForMainFrame) { loadFailed = true; v.postDelayed({ v.reload() }, 700) }
@@ -236,5 +242,6 @@ class MainActivity : Activity() {
 
     inner class Bridge {
         @JavascriptInterface fun pickHeater() = runOnUiThread { this@MainActivity.pickHeater() }
+        @JavascriptInterface fun token(): String = WebServer.TOKEN
     }
 }

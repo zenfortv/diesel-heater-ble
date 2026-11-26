@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 import socket
 from pathlib import Path
 
@@ -31,6 +32,14 @@ def load_config() -> dict:
         cfg.update(json.loads(CONFIG.read_text(encoding="utf-8")))
     else:
         CONFIG.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    if not cfg.get("token"):
+        # the server listens on the whole Wi-Fi: never run it open. Set "token": "off" in config.json to disable.
+        cfg["token"] = secrets.token_urlsafe(12)
+        saved = json.loads(CONFIG.read_text(encoding="utf-8"))
+        saved["token"] = cfg["token"]
+        CONFIG.write_text(json.dumps(saved, indent=2), encoding="utf-8")
+    if cfg["token"] == "off":
+        cfg["token"] = ""
     return cfg
 
 
@@ -39,7 +48,7 @@ async def auth(request: web.Request, handler):
     token = request.app["cfg"]["token"]
     if token and request.path.startswith(("/api", "/ws")):
         given = request.query.get("token") or request.headers.get("X-Token") or request.cookies.get("token")
-        if given != token:
+        if not given or not secrets.compare_digest(given, token):
             raise web.HTTPUnauthorized(text="bad token")
     return await handler(request)
 
@@ -191,5 +200,6 @@ def lan_ip() -> str:
 if __name__ == "__main__":
     cfg = load_config()
     mode = "SIMULATOR" if cfg["simulate"] or not cfg["address"] else f"heater {cfg['address']}"
-    log.info("%s - open http://%s:%d on phone or laptop", mode, lan_ip(), cfg["port"])
+    tok = f"/?token={cfg['token']}" if cfg["token"] else "  (no token: anyone on this Wi-Fi can use it)"
+    log.info("%s - open http://%s:%d%s on phone or laptop", mode, lan_ip(), cfg["port"], tok)
     web.run_app(build_app(cfg), host="0.0.0.0", port=cfg["port"], print=None)

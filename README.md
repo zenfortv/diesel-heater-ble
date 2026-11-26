@@ -3,6 +3,13 @@
 Turn your Chinese diesel heater (Vevor, BYD and other heaters that use the **AirHeaterBLE** app) on and off from your phone's
 browser over Bluetooth. You don't need to install an app, run a server or use a cloud account: open the page, connect, and tap **Turn on**.
 
+**No ESP32, Raspberry Pi or other extra hardware needed:** the phone talks straight to the heater's own Bluetooth.
+(The ESP32 / PC "Box" further down is an optional extra for timers with no phone nearby.)
+
+**Status:** v2.2.2 is tested and working on a real heater (colour "AirHeater Controller" panel). It has only
+been tried on a few heaters so far, so **feedback from other models and panels is very welcome**: what works, what doesn't,
+your heater/panel model. Open an [Issue](../../issues) or reply in the Facebook groups.
+
 **Open the app: https://zenfortv.github.io/diesel-heater-ble/** · **Android app (timers + smart thermostat with the
 screen off): [download the APK from Releases](../../releases/latest)**
 
@@ -23,6 +30,8 @@ screen off): [download the APK from Releases](../../releases/latest)**
 *(screenshots from the built-in demo mode)*
 
 ### New in v2.2
+- **v2.2.2 security fix:** the Android app now accepts commands only from its own screen (a new secret at every start),
+  so other apps or web pages on the phone can't control the heater. The PC server makes an access password on first start.
 - **Timers can turn the heater on or off.** Each timer has a **Turn on / Turn off** switch: for example on at 06:45
   for 45 minutes on weekdays, and off at 23:30 every day.
 - **Home: "Switch on/off in".** One countdown wheel: if the heater is running it switches it **off** after the time,
@@ -108,7 +117,8 @@ These are conveniences, **not** safety devices.
 [terms of use and safety disclaimer](web/DISCLAIMER.md).
 
 ## Feedback and forks
-Found a bug or have an idea? Open an [Issue](../../issues). The original repo is maintained by its author only and
+Found a bug, have an idea, or tried it on your heater? Open an [Issue](../../issues) and say which heater and panel
+you have, even if everything works: that helps other people know it's safe to try. The original repo is maintained by its author only and
 pull requests are off, but **forks are welcome**: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
@@ -204,7 +214,8 @@ The newest app also has a multi-slot weekly timer, but only over the separate "V
 ## Remote access later
 - Easiest: install Tailscale on the room PC and the phone -> open `http://<pc-tailscale-name>:8770` from anywhere.
   `tailscale serve 8770` gives HTTPS, which also allows a full app install on Android.
-- If you expose it any other way, set `"token"` in config.json first.
+- server.py makes an access token on first start (saved in config.json) and prints the link to open, with the token in it.
+  Anyone without it gets "bad token". Keep the link private; change `"token"` in config.json to reset it.
 - Cheaper always-on alternative to a PC: ESP32 (~5 EUR) with warehog's ESPHome component + Home Assistant.
 
 ## Publishing

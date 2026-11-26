@@ -914,13 +914,18 @@ let MODE = null;          // "server" | "ble" | "demo"
 const APP = !!window.HeaterApp;  // running inside the Android app (android/)
 let hub = null, ble = null;
 let S = {}, sched = {alarms: [], next: [], history: []};
-let token = store.get("token", ""), simulated = false;
+const qTok = new URLSearchParams(location.search).get("token");
+if (qTok) { store.set("token", qTok); history.replaceState(null, "", location.pathname); }  // PC server prints a link with ?token=
+let token = APP && window.HeaterApp.token ? window.HeaterApp.token() : store.get("token", ""), simulated = false;
 let setMode = "temp", setVal = null, editing = 0, btTouched = false;
 
 async function api(path, method = "GET", body) {
   if (hub) return hub.api(path, method, body);
   const r = await fetch(path, {method, headers: {"Content-Type": "application/json", "X-Token": token}, body: body ? JSON.stringify(body) : undefined});
-  if (r.status === 401) { token = prompt("Access token") || ""; store.set("token", token); return api(path, method, body); }
+  if (r.status === 401) {
+    if (APP) throw new Error("not authorised");
+    token = prompt("Access token (printed by server.py when it starts)") || ""; store.set("token", token); return api(path, method, body);
+  }
   return r.json();
 }
 
@@ -1074,10 +1079,10 @@ function renderSched() {
   // timers, like the alarm list on a phone
   const val = r => r.mode === "temp" && r.value ? `${r.value}°C` : r.mode === "level" && r.value ? `level ${r.value}` : "";
   $("alarmList").innerHTML = (s.alarms || []).length ? s.alarms.slice().sort((a, b) => toMin(a.at) - toMin(b.at)).map(r => `
-    <div class="item alarm ${r.enabled === false ? "dim" : ""}"><button class="main" data-alarm="${r.id}">
-      <div class="tt">${r.at}${r.action === "off" ? "<small>off</small>" : r.dur ? `<small>→ ${hm((toMin(r.at) + r.dur) % 1440)}</small>` : ""}</div>
+    <div class="item alarm ${r.enabled === false ? "dim" : ""}"><button class="main" data-alarm="${esc(r.id)}">
+      <div class="tt">${esc(r.at)}${r.action === "off" ? "<small>off</small>" : r.dur ? `<small>→ ${hm((toMin(r.at) + r.dur) % 1440)}</small>` : ""}</div>
       <div class="s">${(r.action === "off" ? ["Turns off", daysTxt(r)] : [durTxt(r.dur), daysTxt(r), val(r)]).filter(Boolean).join(" · ")}</div></button>
-      <label class="sw"><input type="checkbox" data-atoggle="${r.id}" ${r.enabled === false ? "" : "checked"}><i></i></label></div>`).join("")
+      <label class="sw"><input type="checkbox" data-atoggle="${esc(r.id)}" ${r.enabled === false ? "" : "checked"}><i></i></label></div>`).join("")
     : `<p class="empty">No timers yet. Tap “+ Add”: for example on at 07:00 for 45 minutes, or off at 23:30.</p>`;
   $("nextList").innerHTML = s.next.length ? s.next.map(e => `
     <div class="item"><div><div class="t">${whenTxt(e.at)} · ${esc(evLabel(e))}</div><div class="s">${esc(e.src)}${e.action === "on" && e.dur != null ? " · " + durTxt(e.dur) : ""}</div></div>

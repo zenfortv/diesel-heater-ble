@@ -12,6 +12,7 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.security.MessageDigest
+import java.security.SecureRandom
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import kotlin.concurrent.thread
@@ -26,8 +27,16 @@ class WebServer(
     private val clients = CopyOnWriteArrayList<OutputStream>()
     private val pool = Executors.newCachedThreadPool()
     private var server: ServerSocket? = null
+    private var port = 0
+
+    companion object {
+        /** Secret for /api and /ws, new at every app start. Only the app's own WebView gets it (HeaterApp.token()),
+         *  so other apps on the phone and web pages open in the browser can't drive the heater through 127.0.0.1. */
+        val TOKEN: String = ByteArray(16).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
+    }
 
     fun start(port: Int) {
+        this.port = port
         val ss = ServerSocket()
         ss.reuseAddress = true
         ss.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), port))
@@ -73,6 +82,16 @@ class WebServer(
             val i = l.indexOf(':')
             if (i > 0) headers[l.substring(0, i).trim().lowercase()] = l.substring(i + 1).trim()
         }
+        // DNS-rebinding guard: a page from another site that points its own hostname at 127.0.0.1 sends its hostname here
+        if (headers["host"] != "127.0.0.1:$port") return respond(out, 403, "text/plain", "forbidden".toByteArray())
+        val origin = headers["origin"]
+        if (origin != null && origin != "http://127.0.0.1:$port") return respond(out, 403, "text/plain", "forbidden".toByteArray())
+        if (path.startsWith("/api/") || path == "/ws") {
+            val q = req[1].substringAfter('?', "").split('&').firstOrNull { it.startsWith("token=") }?.removePrefix("token=")
+            val given = headers["x-token"] ?: q ?: ""
+            if (!MessageDigest.isEqual(given.toByteArray(), TOKEN.toByteArray()))
+                return respond(out, 401, "application/json", """{"error":"bad token"}""".toByteArray())
+        }
         if (path == "/ws" && headers["upgrade"]?.lowercase() == "websocket") return websocket(inp, out, headers)
         val len = headers["content-length"]?.toIntOrNull() ?: 0
         val body = ByteArray(len)
@@ -100,7 +119,7 @@ class WebServer(
     }
 
     private fun respond(out: OutputStream, code: Int, type: String, body: ByteArray) {
-        val reason = when (code) { 200 -> "OK"; 404 -> "Not Found"; else -> "Bad Request" }
+        val reason = when (code) { 200 -> "OK"; 401 -> "Unauthorized"; 403 -> "Forbidden"; 404 -> "Not Found"; else -> "Bad Request" }
         out.write(("HTTP/1.1 $code $reason\r\nContent-Type: $type\r\nContent-Length: ${body.size}\r\n" +
             "Cache-Control: no-store\r\nConnection: close\r\n\r\n").toByteArray())
         out.write(body)
