@@ -153,7 +153,8 @@ class PhoneSensor(ctx: Context) {
     @Volatile var outdoor: JSONObject? = try { JSONObject(prefs.getString("outdoor", "") ?: "") } catch (_: Exception) { null }
         private set
     private val net = Executors.newSingleThreadScheduledExecutor()
-    var place: () -> Pair<Double, Double> = { VENARIA }
+    /** the weather place the user typed (NaN = none set: no weather is fetched, nothing leaves the phone) */
+    var place: () -> Pair<Double, Double> = { Double.NaN to Double.NaN }
 
     fun startWeather() { net.scheduleWithFixedDelay({ fetchWeather() }, 2, 20 * 60, java.util.concurrent.TimeUnit.SECONDS) }
     fun refreshWeather() { net.execute { fetchWeather() } }
@@ -161,6 +162,7 @@ class PhoneSensor(ctx: Context) {
 
     private fun fetchWeather() {
         val (lat, lon) = place()
+        if (lat.isNaN() || lon.isNaN()) return
         // ItaliaMeteo's ICON-2I (2.2 km, the Italian national model) first, Open-Meteo's best match if it has no data here
         for ((model, label) in listOf("&models=italia_meteo_arpae_icon_2i" to "ItaliaMeteo ICON-2I", "" to "Open-Meteo")) {
             try {
@@ -180,7 +182,6 @@ class PhoneSensor(ctx: Context) {
     }
 
     companion object {
-        val VENARIA = 45.1377 to 7.6306
         private fun nowS() = System.currentTimeMillis() / 1000.0
         private fun r1(v: Double) = Math.round(v * 10) / 10.0
         private fun r2(v: Double) = Math.round(v * 100) / 100.0

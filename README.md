@@ -112,6 +112,20 @@ restarts), no start under the battery limit or with a heater fault, stop above 3
 reading, nothing done on missing or old data, alerts when the heater can't be switched off or is lost while running.
 These are conveniences, **not** safety devices.
 
+## Is it safe to install?
+- **Open source:** every line of the app is in this repo, and the APK is built from it.
+- **No internet needed:** it talks to the heater over Bluetooth only. The one exception is the optional outdoor
+  temperature (Open-Meteo), and only if you type a place yourself. No accounts, analytics, ads or tracking.
+- **Permissions (Android):**
+  - Bluetooth: to find and talk to the heater.
+  - Notifications: on/off and safety alerts.
+  - Run in background, start at boot, wake lock: so the timers and thermostat keep working with the screen off.
+  - Internet: only for the page inside the app, which talks to the app's own service on the phone (127.0.0.1),
+    and for the optional weather.
+  - Location: only on Android 11 and older, where Android requires it for Bluetooth scanning. The app never reads your position.
+- **Check the file:** each release lists the APK's **SHA-256** and the **signing certificate** fingerprint.
+  See [SECURITY.md](SECURITY.md) for how to check them and how to report a problem privately.
+
 ## License
 [MIT](LICENSE): free to use, copy and change, **without warranty**. Use is also subject to the
 [terms of use and safety disclaimer](web/DISCLAIMER.md).

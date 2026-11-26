@@ -317,6 +317,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
           <p class="mute" style="margin:4px 0 0"><b style="color:var(--hot)">━</b> room (phone, corrected) · <b style="color:var(--mute)">━</b> phone battery · <b style="color:var(--amber)">━</b> heater sensor · <b style="color:#4da3ff">━</b> outside · shaded = heater on</p></details>
         <div class="grid2"><label class="f">Weather place: latitude<input type="number" id="smLat" step="0.0001" inputmode="decimal"></label>
           <label class="f">longitude<input type="number" id="smLon" step="0.0001" inputmode="decimal"></label></div>
+        <p class="mute" style="margin:2px 0 0">Optional, for the outdoor temperature (Open-Meteo). Two decimals (~1 km) are enough. Left empty, no weather is fetched.</p>
       </div>
       <h3 style="margin:16px 0 4px;font-size:15px">Heating</h3>
       <label class="f">How it heats<select id="smStyle">
@@ -1515,8 +1516,8 @@ function renderPhone(sm) {
     P.hotspot == null ? "hotspot ?" : P.hotspot ? "hotspot on" : "no hotspot", P.load_a != null ? `${P.load_a} A` : ""].filter(Boolean).join(" · ");
   $("phNow").textContent = `Phone now: battery ${P.raw ?? "?"}° · ${st}. Estimated ${P.warm_by ?? "?"}° warmer than the room → room ${P.room ?? "?"}°.` +
     (P.outdoor ? ` Outside ${P.outdoor.temp}° ${P.outdoor.text || ""} (${P.outdoor.src}, ${P.outdoor.time?.slice(11) || ""}).` : "");
-  if (document.activeElement !== $("smLat")) $("smLat").value = sm.lat;
-  if (document.activeElement !== $("smLon")) $("smLon").value = sm.lon;
+  if (document.activeElement !== $("smLat")) $("smLat").value = sm.lat ?? "";
+  if (document.activeElement !== $("smLon")) $("smLon").value = sm.lon ?? "";
 }
 let calTimer = null;
 async function loadCalib() {

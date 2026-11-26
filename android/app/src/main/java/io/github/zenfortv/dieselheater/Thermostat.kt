@@ -27,6 +27,8 @@ class Thermostat(
             val saved = JSONObject(prefs.getString("thermo", "{}") ?: "{}")
             for (k in saved.keys()) cfg.put(k, saved.get(k))
             // v1.1-1.3 had "enabled" (feature) + "active" (holding): now one switch
+            // up to v2.2.2 a built-in example place was the default: drop it, the user types their own (optional)
+            if (!prefs.getBoolean("place_v2", false)) { cfg.remove("lat"); cfg.remove("lon"); save(); prefs.edit().putBoolean("place_v2", true).apply() }
             if (saved.has("active")) { cfg.put("enabled", saved.optBoolean("enabled") && saved.optBoolean("active")); cfg.remove("active"); save() }
         } catch (_: Exception) {}
         try {
@@ -135,7 +137,6 @@ class Thermostat(
             .put("min_on_min", d("min_on_min").coerceIn(10.0, 120.0)).put("min_off_min", d("min_off_min").coerceIn(5.0, 120.0))
             .put("offset", d("offset").coerceIn(-5.0, 5.0)).put("target", d("target").coerceIn(8.0, MAX_TARGET))
             .put("min_volt", d("min_volt").coerceIn(0.0, 13.0)).put("phone_offset", d("phone_offset").coerceIn(-5.0, 5.0))
-            .put("lat", d("lat").coerceIn(-90.0, 90.0)).put("lon", d("lon").coerceIn(-180.0, 180.0))
             .put("source", if (cfg.optString("source") == "phone") "phone" else "heater")
             .put("style", style).put("warm_below", d("warm_below").coerceIn(-10.0, 18.0))
             .put("boost_level", d("boost_level").coerceIn(1.0, 10.0).toInt()).put("boost_until", d("boost_until").coerceIn(8.0, 25.0))
@@ -143,6 +144,10 @@ class Thermostat(
             .put("cold_restart", d("cold_restart").coerceIn(5.0, 22.0))
             .put("day_target", d("day_target").coerceIn(8.0, MAX_TARGET)).put("night_target", d("night_target").coerceIn(8.0, MAX_TARGET))
             .put("pump_hz_min", d("pump_hz_min").coerceIn(0.5, 3.0)).put("pump_hz_max", d("pump_hz_max").coerceIn(3.0, 8.0))
+        // the weather place is optional: kept only when both numbers are valid
+        val lat = d("lat"); val lon = d("lon")
+        if (lat.isNaN() || lon.isNaN()) { cfg.remove("lat"); cfg.remove("lon") }
+        else cfg.put("lat", lat.coerceIn(-90.0, 90.0)).put("lon", lon.coerceIn(-180.0, 180.0))
         for (k in listOf("sleep_at", "wake_at")) if (!Regex("^([01]\\d|2[0-3]):[0-5]\\d$").matches(cfg.optString(k))) cfg.put(k, DEFAULTS.getString(k))
         save()
         if (b.has("lat") || b.has("lon")) phone.refreshWeather()
@@ -289,7 +294,6 @@ class Thermostat(
         val DEFAULTS: JSONObject = JSONObject().put("enabled", false).put("target", 21.0)
             .put("below", 1.0).put("above", 1.0).put("min_on_min", 10.0).put("min_off_min", 10.0)
             .put("min_volt", 11.8).put("offset", 0.0).put("source", "heater").put("phone_offset", 0.0)
-            .put("lat", PhoneSensor.VENARIA.first).put("lon", PhoneSensor.VENARIA.second)
             // heating plan (HeatPlan) and sleep / wake-up targets: WHO winter minimum 18°, sleep 18-20°, a van's cold walls ask ~1° more
             .put("style", "auto").put("warm_below", 9.0).put("boost_level", 10).put("boost_until", 17.0)
             .put("approach_level", 2).put("hold_level", 1).put("cold_restart", 16.0)
